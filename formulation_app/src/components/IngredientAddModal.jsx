@@ -28,7 +28,7 @@ const IngredientAddModal = ({ isOpen, onClose, onSuccess }) => {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       const data = await response.json();
-      setCategories(data);
+      setCategories(data.categories || []);
     } catch (error) {
       console.error('Error fetching categories:', error);
     }
@@ -41,7 +41,7 @@ const IngredientAddModal = ({ isOpen, onClose, onSuccess }) => {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       const data = await response.json();
-      setSuppliers(data);
+      setSuppliers(data.suppliers || []);
     } catch (error) {
       console.error('Error fetching suppliers:', error);
     }
