@@ -4,7 +4,7 @@ import axios from 'axios';
 import IngredientAddModal from '../components/IngredientAddModal';
 import IngredientEditModal from '../components/IngredientEditModal';
 
-const API_BASE_URL = 'http://localhost:5000/api';
+const API_BASE_URL = '/api';
 
 const Ingredients = () => {
   const [ingredients, setIngredients] = useState([]);

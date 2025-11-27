@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { X, Search, Filter, XCircle } from 'lucide-react';
 import axios from 'axios';
 
-const API_BASE_URL = 'http://localhost:5000/api';
+const API_BASE_URL = '/api';
 
 const AdvancedSearchPanel = ({ isOpen, onClose, onSearch }) => {
   const [loading, setLoading] = useState(false);

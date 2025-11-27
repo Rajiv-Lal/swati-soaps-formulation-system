@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { FileText, Download, Loader, AlertCircle, Calculator } from 'lucide-react';
 import axios from 'axios';
 
-const API_BASE_URL = 'http://localhost:5000/api';
+const API_BASE_URL = '/api';
 
 const BOMGenerator = ({ formulation }) => {
   const [loading, setLoading] = useState(false);

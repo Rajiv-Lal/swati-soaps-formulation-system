@@ -8,7 +8,7 @@ import axios from 'axios';
 import BOMGenerator from '../components/BOMGenerator';
 import VersionTimeline from '../components/VersionTimeline';
 
-const API_BASE_URL = 'http://localhost:5000/api';
+const API_BASE_URL = '/api';
 
 const FormulationDetail = () => {
   const { id } = useParams();

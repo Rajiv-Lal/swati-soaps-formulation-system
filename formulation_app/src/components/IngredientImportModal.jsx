@@ -3,7 +3,7 @@ import { X, Upload, Download, FileSpreadsheet, CheckCircle, AlertCircle, Loader 
 import axios from 'axios';
 import * as XLSX from 'xlsx';
 
-const API_BASE_URL = 'http://localhost:5000/api';
+const API_BASE_URL = '/api';
 
 const IngredientImportModal = ({ isOpen, onClose, onSuccess }) => {
   const [file, setFile] = useState(null);
