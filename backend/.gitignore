@@ -3,3 +3,4 @@ __pycache__/
 venv/
 *.pyc
 *.db
+swati_soaps.db
