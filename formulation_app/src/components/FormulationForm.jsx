@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, Trash2, AlertCircle, Calculator } from 'lucide-react';
 import axios from 'axios';
+import IngredientSelector from './IngredientSelector';
 
 const API_BASE_URL = '/api';
 
@@ -345,51 +346,76 @@ const FormulationForm = ({ initialData = null, onSubmit, onCancel, isEdit = fals
         <h3 className="text-lg font-semibold text-gray-900 mb-4">Ingredients *</h3>
         
         {/* Add Ingredient */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-          <div className="md:col-span-2">
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Select Ingredient
-            </label>
-            <select
-              value={selectedIngredient}
-              onChange={(e) => setSelectedIngredient(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-              disabled={loading}
-            >
-              <option value="">Choose an ingredient...</option>
-              {ingredients.map(ing => (
-                <option key={ing.id} value={ing.id}>
-                  {ing.name} (₹{ing.landed_cost_net_gst}/kg)
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="flex gap-2">
-            <div className="flex-1">
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Percentage (%)
+        <div className="space-y-4 mb-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Select Ingredient
               </label>
-              <input
-                type="number"
-                value={ingredientPercentage}
-                onChange={(e) => setIngredientPercentage(e.target.value)}
-                step="0.01"
-                min="0"
-                max="100"
-                placeholder="0.00"
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              <IngredientSelector
+                ingredients={ingredients}
+                onSelect={(ing) => {
+                  setSelectedIngredient(ing.id.toString());
+                  // Auto-focus percentage input
+                  setTimeout(() => {
+                    document.getElementById('ingredient-percentage')?.focus();
+                  }, 100);
+                }}
                 disabled={loading}
               />
             </div>
-            <button
-              type="button"
-              onClick={handleAddIngredient}
-              className="self-end px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-400"
-              disabled={loading}
-            >
-              <Plus className="w-5 h-5" />
-            </button>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Add to Formulation
+              </label>
+              {selectedIngredient && (
+                <div className="p-4 bg-blue-50 border border-blue-200 rounded-md">
+                  <div className="font-medium text-sm text-gray-900 mb-2">
+                    {ingredients.find(i => i.id === parseInt(selectedIngredient))?.name}
+                  </div>
+                  <div className="text-xs text-gray-600 mb-3">
+                    Cost: ₹{ingredients.find(i => i.id === parseInt(selectedIngredient))?.landed_cost_net_gst}/kg
+                  </div>
+                  <div className="flex gap-2">
+                    <div className="flex-1">
+                      <input
+                        id="ingredient-percentage"
+                        type="number"
+                        value={ingredientPercentage}
+                        onChange={(e) => setIngredientPercentage(e.target.value)}
+                        step="0.01"
+                        min="0"
+                        max="100"
+                        placeholder="Percentage (%)"
+                        className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        disabled={loading}
+                        onKeyPress={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            handleAddIngredient();
+                          }
+                        }}
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleAddIngredient}
+                      className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-400 flex items-center gap-2"
+                      disabled={loading}
+                    >
+                      <Plus className="w-4 h-4" />
+                      Add
+                    </button>
+                  </div>
+                </div>
+              )}
+              {!selectedIngredient && (
+                <div className="p-4 bg-gray-50 border border-gray-200 rounded-md text-sm text-gray-600 text-center">
+                  Select an ingredient from the list →
+                </div>
+              )}
+            </div>
           </div>
         </div>
 

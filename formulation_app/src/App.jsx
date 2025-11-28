@@ -106,13 +106,13 @@ function App() {
     <Router>
       <AppLayout onLogout={handleLogout}>
         <Routes>
-          <Route path="/" element={<Navigate to="/ingredients" />} />
+          <Route path="/" element={<Navigate to="/formulations" />} />
           <Route path="/ingredients" element={<Ingredients />} />
           <Route path="/formulations" element={<Formulations />} />
           <Route path="/formulations/create" element={<FormulationCreate />} />
           <Route path="/formulations/:id" element={<FormulationDetail />} />
           <Route path="/formulations/:id/edit" element={<FormulationEdit />} />
-          <Route path="*" element={<Navigate to="/ingredients" />} />
+          <Route path="*" element={<Navigate to="/formulations" />} />
         </Routes>
       </AppLayout>
     </Router>
