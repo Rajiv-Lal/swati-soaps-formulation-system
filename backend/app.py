@@ -441,7 +441,7 @@ def get_formulations():
         
         query = '''
             SELECT f.*, pt.name as product_type_name,
-                   u.name as created_by_name,
+                   u.full_name as created_by_name,
                    COUNT(DISTINCT fi.ingredient_id) as ingredient_count
             FROM formulations f
             LEFT JOIN product_types pt ON f.product_type_id = pt.id
@@ -480,7 +480,7 @@ def get_formulation(id):
         
         # Get formulation
         cursor.execute('''
-            SELECT f.*, pt.name as product_type_name, u.name as created_by_name
+            SELECT f.*, pt.name as product_type_name, u.full_name as created_by_name
             FROM formulations f
             LEFT JOIN product_types pt ON f.product_type_id = pt.id
             LEFT JOIN users u ON f.created_by = u.id
@@ -994,7 +994,7 @@ def get_formulation_versions(id):
         cursor = conn.cursor()
         
         cursor.execute('''
-            SELECT fv.*, u.name as created_by_name
+            SELECT fv.*, u.full_name as created_by_name
             FROM formulation_versions fv
             LEFT JOIN users u ON fv.created_by = u.id
             WHERE fv.formulation_id = ?
@@ -1212,7 +1212,7 @@ def get_test_results(id):
         cursor = conn.cursor()
         
         cursor.execute('''
-            SELECT tr.*, u.name as tested_by_name, fv.version_number
+            SELECT tr.*, u.full_name as tested_by_name, fv.version_number
             FROM test_results tr
             LEFT JOIN users u ON tr.tested_by = u.id
             LEFT JOIN formulation_versions fv ON tr.version_id = fv.id
