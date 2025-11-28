@@ -27,6 +27,27 @@ const IngredientAddModal = ({ isOpen, onClose, onSuccess }) => {
       const response = await fetch('/api/categories', {
         headers: { 'Authorization': `Bearer ${token}` }
       });
+  const [availableTags, setAvailableTags] = useState([]);
+
+  useEffect(() => {
+    if (isOpen) {
+      loadTags();
+    }
+  }, [isOpen]);
+
+  const loadTags = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const response = await axios.get(`${API_BASE_URL}/tags`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const allTags = (response.data.tags || []).map(t => t.name);
+      setAvailableTags(allTags);
+    } catch (err) {
+      console.error('Error loading tags:', err);
+    }
+  };
+
       const data = await response.json();
       setCategories(data.categories || []);
     } catch (error) {

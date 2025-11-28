@@ -2,7 +2,7 @@ import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Package, Beaker, FileText, LogOut } from 'lucide-react';
 
-const Dashboard = ({ onLogout }) => {
+const Dashboard = () => {
   const navigate = useNavigate();
 
   const cards = [
@@ -31,13 +31,7 @@ const Dashboard = ({ onLogout }) => {
               <FileText className="h-8 w-8 text-blue-600" />
               <span className="ml-2 text-xl font-bold text-gray-800">Swati Soaps</span>
             </div>
-            <button
-              onClick={onLogout}
-              className="flex items-center text-gray-600 hover:text-gray-800"
-            >
-              <LogOut className="h-5 w-5 mr-2" />
-              Logout
-            </button>
+            
           </div>
         </div>
       </nav>

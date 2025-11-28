@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Search } from 'lucide-react';
 
-const Formulations = ({ onLogout }) => {
+const Formulations = () => {
   const navigate = useNavigate();
   const [formulations, setFormulations] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -19,7 +19,7 @@ const Formulations = ({ onLogout }) => {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       const data = await response.json();
-      setFormulations(data);
+      setFormulations(data.formulations || []);
     } catch (error) {
       console.error('Error fetching formulations:', error);
     } finally {
@@ -42,9 +42,7 @@ const Formulations = ({ onLogout }) => {
               </button>
               <span className="text-xl font-bold text-gray-800">Formulations</span>
             </div>
-            <button onClick={onLogout} className="text-gray-600 hover:text-gray-800">
-              Logout
-            </button>
+            
           </div>
         </div>
       </nav>

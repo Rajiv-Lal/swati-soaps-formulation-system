@@ -30,6 +30,7 @@ const IngredientEditModal = ({ isOpen, onClose, onSuccess, ingredientId }) => {
   });
   
   const [validation, setValidation] = useState({});
+  const [availableTags, setAvailableTags] = useState([]);
 
   // Load ingredient data and reference data
   useEffect(() => {
@@ -56,14 +57,16 @@ const IngredientEditModal = ({ isOpen, onClose, onSuccess, ingredientId }) => {
       const headers = { Authorization: `Bearer ${token}` };
 
       // Load reference data and ingredient in parallel
-      const [categoriesRes, suppliersRes, ingredientRes] = await Promise.all([
+      const [categoriesRes, suppliersRes, ingredientRes, tagsRes] = await Promise.all([
         axios.get(`${API_BASE_URL}/categories`, { headers }),
         axios.get(`${API_BASE_URL}/suppliers`, { headers }),
-        axios.get(`${API_BASE_URL}/ingredients/${ingredientId}`, { headers })
+        axios.get(`${API_BASE_URL}/ingredients/${ingredientId}`, { headers }),
+        axios.get(`${API_BASE_URL}/tags`, { headers })
       ]);
 
       setCategories(categoriesRes.data.categories || []);
       setSuppliers(suppliersRes.data.suppliers || []);
+      setAvailableTags((tagsRes.data.tags || []).map(t => t.name));
 
       // Populate form with ingredient data
       const ing = ingredientRes.data.ingredient;
@@ -519,7 +522,7 @@ const IngredientEditModal = ({ isOpen, onClose, onSuccess, ingredientId }) => {
                     Usage Tags
                   </label>
                   <div className="flex flex-wrap gap-2">
-                    {['soaps', 'cosmetics', 'both'].map(tag => (
+                    {availableTags.map(tag => (
                       <button
                         key={tag}
                         type="button"
@@ -531,7 +534,7 @@ const IngredientEditModal = ({ isOpen, onClose, onSuccess, ingredientId }) => {
                         }`}
                         disabled={loading}
                       >
-                        {tag.charAt(0).toUpperCase() + tag.slice(1)}
+                        {tag.charAt(0).toUpperCase() + tag.slice(1).replace(/-/g, ' ')}
                       </button>
                     ))}
                   </div>

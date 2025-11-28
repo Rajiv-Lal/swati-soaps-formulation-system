@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Search, Filter, Edit2, Trash2, AlertCircle, RefreshCw } from 'lucide-react';
+import { Plus, Search, Filter, Edit2, Trash2, AlertCircle, RefreshCw, ChevronDown, ChevronRight, Upload } from 'lucide-react';
 import axios from 'axios';
 import IngredientAddModal from '../components/IngredientAddModal';
 import IngredientEditModal from '../components/IngredientEditModal';
+import IngredientImportModal from '../components/IngredientImportModal';
 
 const API_BASE_URL = '/api';
 
@@ -15,24 +16,23 @@ const Ingredients = () => {
   // Modal states
   const [showAddModal, setShowAddModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
+  const [showImportModal, setShowImportModal] = useState(false);
   const [editingIngredientId, setEditingIngredientId] = useState(null);
   
-  // Filter states
+  // Filter and view states
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('');
   const [selectedTag, setSelectedTag] = useState('');
   const [showFilters, setShowFilters] = useState(false);
+  const [viewMode, setViewMode] = useState('grouped'); // 'grouped' or 'list'
+  const [expandedCategories, setExpandedCategories] = useState({});
 
   useEffect(() => {
     loadData();
   }, []);
 
   useEffect(() => {
-    if (searchTerm || selectedCategory || selectedTag) {
-      loadIngredients();
-    } else {
-      loadIngredients();
-    }
+    loadIngredients();
   }, [searchTerm, selectedCategory, selectedTag]);
 
   const loadData = async () => {
@@ -50,6 +50,13 @@ const Ingredients = () => {
 
       setIngredients(ingredientsRes.data.ingredients || []);
       setCategories(categoriesRes.data.categories || []);
+      
+      // Expand all categories by default
+      const expanded = {};
+      (categoriesRes.data.categories || []).forEach(cat => {
+        expanded[cat.id] = true;
+      });
+      setExpandedCategories(expanded);
     } catch (err) {
       console.error('Error loading data:', err);
       setError('Failed to load ingredients');
@@ -89,7 +96,6 @@ const Ingredients = () => {
         headers: { Authorization: `Bearer ${token}` }
       });
 
-      // Remove from list
       setIngredients(prev => prev.filter(ing => ing.id !== id));
     } catch (err) {
       console.error('Error deleting ingredient:', err);
@@ -110,10 +116,21 @@ const Ingredients = () => {
     loadIngredients();
   };
 
+  const handleImportSuccess = () => {
+    loadIngredients();
+  };
+
   const clearFilters = () => {
     setSearchTerm('');
     setSelectedCategory('');
     setSelectedTag('');
+  };
+
+  const toggleCategory = (categoryId) => {
+    setExpandedCategories(prev => ({
+      ...prev,
+      [categoryId]: !prev[categoryId]
+    }));
   };
 
   const getStockStatusBadge = (status) => {
@@ -136,6 +153,15 @@ const Ingredients = () => {
     );
   };
 
+  // Group ingredients by category
+  const groupedIngredients = categories.reduce((acc, category) => {
+    acc[category.id] = {
+      ...category,
+      ingredients: ingredients.filter(ing => ing.category_id === category.id)
+    };
+    return acc;
+  }, {});
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -155,19 +181,27 @@ const Ingredients = () => {
               Manage your ingredient inventory and specifications
             </p>
           </div>
-          <button
-            onClick={() => setShowAddModal(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
-          >
-            <Plus className="w-5 h-5" />
-            Add Ingredient
-          </button>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setShowImportModal(true)}
+              className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors"
+            >
+              <Upload className="w-5 h-5" />
+              Import Excel
+            </button>
+            <button
+              onClick={() => setShowAddModal(true)}
+              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
+            >
+              <Plus className="w-5 h-5" />
+              Add Ingredient
+            </button>
+          </div>
         </div>
 
         {/* Search and Filter Bar */}
         <div className="bg-white rounded-lg shadow-sm border p-4">
           <div className="flex flex-col md:flex-row gap-4">
-            {/* Search */}
             <div className="flex-1">
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
@@ -181,7 +215,6 @@ const Ingredients = () => {
               </div>
             </div>
 
-            {/* Filter Toggle */}
             <button
               onClick={() => setShowFilters(!showFilters)}
               className={`flex items-center gap-2 px-4 py-2 border rounded-md transition-colors ${
@@ -193,12 +226,17 @@ const Ingredients = () => {
               <Filter className="w-5 h-5" />
               Filters
             </button>
+
+            <button
+              onClick={() => setViewMode(viewMode === 'grouped' ? 'list' : 'grouped')}
+              className="px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50"
+            >
+              {viewMode === 'grouped' ? 'List View' : 'Group by Category'}
+            </button>
           </div>
 
-          {/* Filter Options */}
           {showFilters && (
             <div className="mt-4 pt-4 border-t grid grid-cols-1 md:grid-cols-3 gap-4">
-              {/* Category Filter */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Category
@@ -215,7 +253,6 @@ const Ingredients = () => {
                 </select>
               </div>
 
-              {/* Tag Filter */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Usage
@@ -232,7 +269,6 @@ const Ingredients = () => {
                 </select>
               </div>
 
-              {/* Clear Filters */}
               <div className="flex items-end">
                 <button
                   onClick={clearFilters}
@@ -245,7 +281,6 @@ const Ingredients = () => {
           )}
         </div>
 
-        {/* Results Count */}
         <div className="mt-4 text-sm text-gray-600">
           Showing {ingredients.length} ingredient{ingredients.length !== 1 ? 's' : ''}
           {(searchTerm || selectedCategory || selectedTag) && ' (filtered)'}
@@ -268,7 +303,7 @@ const Ingredients = () => {
         </div>
       )}
 
-      {/* Ingredients Table */}
+      {/* Ingredients Display */}
       {ingredients.length === 0 ? (
         <div className="bg-white rounded-lg shadow-sm border p-12 text-center">
           <div className="text-gray-400 mb-4">
@@ -293,30 +328,113 @@ const Ingredients = () => {
             </button>
           )}
         </div>
+      ) : viewMode === 'grouped' ? (
+        /* Grouped View by Category */
+        <div className="space-y-4">
+          {categories.map(category => {
+            const categoryData = groupedIngredients[category.id];
+            if (!categoryData || categoryData.ingredients.length === 0) return null;
+
+            return (
+              <div key={category.id} className="bg-white rounded-lg shadow-sm border overflow-hidden">
+                <button
+                  onClick={() => toggleCategory(category.id)}
+                  className="w-full flex items-center justify-between p-4 hover:bg-gray-50 transition-colors"
+                >
+                  <div className="flex items-center gap-3">
+                    {expandedCategories[category.id] ? (
+                      <ChevronDown className="w-5 h-5 text-gray-500" />
+                    ) : (
+                      <ChevronRight className="w-5 h-5 text-gray-500" />
+                    )}
+                    <h2 className="text-lg font-semibold text-gray-900">{category.name}</h2>
+                    <span className="px-2 py-1 text-xs font-medium bg-blue-100 text-blue-800 rounded-full">
+                      {categoryData.ingredients.length}
+                    </span>
+                  </div>
+                </button>
+
+                {expandedCategories[category.id] && (
+                  <div className="border-t">
+                    <table className="min-w-full divide-y divide-gray-200">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Cost (₹/kg)</th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Stock Status</th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Supplier</th>
+                          <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="bg-white divide-y divide-gray-200">
+                        {categoryData.ingredients.map((ingredient) => (
+                          <tr key={ingredient.id} className="hover:bg-gray-50">
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <div>
+                                <div className="text-sm font-medium text-gray-900">{ingredient.name}</div>
+                                {ingredient.inci_name && (
+                                  <div className="text-sm text-gray-500">INCI: {ingredient.inci_name}</div>
+                                )}
+                                {ingredient.cas_number && (
+                                  <div className="text-xs text-gray-400">CAS: {ingredient.cas_number}</div>
+                                )}
+                              </div>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <div className="text-sm font-medium text-gray-900">
+                                ₹{parseFloat(ingredient.landed_cost_net_gst || 0).toLocaleString('en-IN', {
+                                  minimumFractionDigits: 2,
+                                  maximumFractionDigits: 2
+                                })}
+                              </div>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              {getStockStatusBadge(ingredient.stock_status)}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <div className="text-sm text-gray-900">{ingredient.supplier_name || '-'}</div>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                              <div className="flex items-center justify-end gap-2">
+                                <button
+                                  onClick={() => handleEdit(ingredient.id)}
+                                  className="text-blue-600 hover:text-blue-900 p-1"
+                                  title="Edit ingredient"
+                                >
+                                  <Edit2 className="w-4 h-4" />
+                                </button>
+                                <button
+                                  onClick={() => handleDelete(ingredient.id, ingredient.name)}
+                                  className="text-red-600 hover:text-red-900 p-1"
+                                  title="Delete ingredient"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
       ) : (
+        /* List View (original) */
         <div className="bg-white rounded-lg shadow-sm border overflow-hidden">
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Name
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Category
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Cost (₹/kg)
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Stock Status
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Supplier
-                  </th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Actions
-                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Category</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Cost (₹/kg)</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Stock Status</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Supplier</th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
@@ -324,29 +442,19 @@ const Ingredients = () => {
                   <tr key={ingredient.id} className="hover:bg-gray-50">
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div>
-                        <div className="text-sm font-medium text-gray-900">
-                          {ingredient.name}
-                        </div>
+                        <div className="text-sm font-medium text-gray-900">{ingredient.name}</div>
                         {ingredient.inci_name && (
-                          <div className="text-sm text-gray-500">
-                            INCI: {ingredient.inci_name}
-                          </div>
+                          <div className="text-sm text-gray-500">INCI: {ingredient.inci_name}</div>
                         )}
                         {ingredient.cas_number && (
-                          <div className="text-xs text-gray-400">
-                            CAS: {ingredient.cas_number}
-                          </div>
+                          <div className="text-xs text-gray-400">CAS: {ingredient.cas_number}</div>
                         )}
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm text-gray-900">
-                        {ingredient.category_name}
-                      </div>
+                      <div className="text-sm text-gray-900">{ingredient.category_name}</div>
                       {ingredient.subcategory_name && (
-                        <div className="text-xs text-gray-500">
-                          {ingredient.subcategory_name}
-                        </div>
+                        <div className="text-xs text-gray-500">{ingredient.subcategory_name}</div>
                       )}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
@@ -361,9 +469,7 @@ const Ingredients = () => {
                       {getStockStatusBadge(ingredient.stock_status)}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm text-gray-900">
-                        {ingredient.supplier_name || '-'}
-                      </div>
+                      <div className="text-sm text-gray-900">{ingredient.supplier_name || '-'}</div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                       <div className="flex items-center justify-end gap-2">
@@ -406,6 +512,12 @@ const Ingredients = () => {
         }}
         onSuccess={handleEditSuccess}
         ingredientId={editingIngredientId}
+      />
+
+      <IngredientImportModal
+        isOpen={showImportModal}
+        onClose={() => setShowImportModal(false)}
+        onSuccess={handleImportSuccess}
       />
     </div>
   );
