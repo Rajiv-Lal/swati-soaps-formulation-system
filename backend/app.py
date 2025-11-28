@@ -592,7 +592,7 @@ def create_formulation():
                 product_name, product_type_id, current_version, grammage,
                 pack_count, status, total_cost_per_piece,
                 notes, created_at, updated_at, created_by
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', (
             data['product_name'],
             data.get('product_type_id'),
@@ -613,7 +613,8 @@ def create_formulation():
         cursor.execute('''
             INSERT INTO formulation_versions (
                 formulation_id, version_number, created_at, created_by,
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                change_notes, ingredients_snapshot, cost_snapshot
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
         ''', (
             formulation_id,
             'v1.0',
@@ -639,7 +640,7 @@ def create_formulation():
                 ing['ingredient_id'],
                 ing['percentage'],
                 ing['quantity_grams'],
-                ing['cost_per_piece'],
+                ing['cost_per_piece']
             ))
         
         # Add benefits
@@ -748,7 +749,7 @@ def update_formulation(id):
             UPDATE formulations SET
                 product_name = ?, product_type_id = ?, current_version = ?,
                 grammage = ?, pack_count = ?, status = ?,
-                total_cost_per_piece = ? = ?,
+                total_cost_per_piece = ?,
                 notes = ?, updated_at = ?
             WHERE id = ?
         ''', (
@@ -867,7 +868,7 @@ def duplicate_formulation(id):
                 product_name, product_type_id, current_version, grammage,
                 pack_count, status, total_cost_per_piece,
                 notes, created_at, updated_at, created_by
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', (
             new_name,
             original['product_type_id'],
@@ -900,7 +901,8 @@ def duplicate_formulation(id):
         cursor.execute('''
             INSERT INTO formulation_versions (
                 formulation_id, version_number, created_at, created_by,
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                change_notes, ingredients_snapshot, cost_snapshot
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
         ''', (
             new_formulation_id,
             'v1.0',
@@ -926,7 +928,7 @@ def duplicate_formulation(id):
                 ing['ingredient_id'],
                 ing['percentage'],
                 ing['quantity_grams'],
-                ing['cost_per_piece'],
+                ing['cost_per_piece']
             ))
         
         # Copy benefits
@@ -1137,7 +1139,8 @@ def restore_version(id, version_id):
         cursor.execute('''
             INSERT INTO formulation_versions (
                 formulation_id, version_number, created_at, created_by,
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                change_notes, ingredients_snapshot, cost_snapshot
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
         ''', (
             id,
             new_version,
