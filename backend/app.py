@@ -22,7 +22,7 @@ app.config['JWT_ACCESS_TOKEN_EXPIRES'] = timedelta(hours=24)
 app.config['DATABASE'] = os.environ.get('DATABASE_PATH', 'swati_soaps.db')
 
 # Initialize extensions
-CORS(app, resources={r"/api/*": {"origins": "http://localhost:3000"}})
+CORS(app)  # Allow all origins
 jwt = JWTManager(app)
 
 # Database connection helper
@@ -197,7 +197,7 @@ def get_ingredient(id):
             return jsonify({'error': 'Ingredient not found'}), 404
         
         # Get tags
-        cursor.execute('SELECT tag FROM ingredient_tags WHERE ingredient_id = ?', (id,))
+        cursor.execute('SELECT t.name as tag FROM ingredient_tags it JOIN tags t ON it.tag_id = t.id WHERE it.ingredient_id = ?', (id,))
         tags = [row['tag'] for row in cursor.fetchall()]
         
         conn.close()
@@ -1693,7 +1693,7 @@ def get_suppliers():
         conn = get_db()
         cursor = conn.cursor()
         
-        cursor.execute('SELECT * FROM suppliers WHERE is_active = 1 ORDER BY name')
+        cursor.execute('SELECT * FROM suppliers ORDER BY name')
         suppliers = [dict_from_row(row) for row in cursor.fetchall()]
         conn.close()
         
