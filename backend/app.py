@@ -106,7 +106,7 @@ def get_current_user():
         
         conn = get_db()
         cursor = conn.cursor()
-        cursor.execute('SELECT id, email, name, role FROM users WHERE id = ?', (user_id,))
+        cursor.execute('SELECT id, email, full_name as name, role FROM users WHERE id = ?', (user_id,))
         user = cursor.fetchone()
         conn.close()
         
@@ -262,8 +262,8 @@ def create_ingredient():
         tags = data.get('tags', [])
         for tag in tags:
             cursor.execute(
-                'INSERT INTO ingredient_tags (ingredient_id, tag) VALUES (?, ?)',
-                (ingredient_id, tag)
+                'INSERT INTO ingredient_tags (ingredient_id, tag_id) VALUES (?, ?)',
+                (ingredient_id, tag_id)
             )
         
         conn.commit()
@@ -326,7 +326,7 @@ def update_ingredient(id):
             cursor.execute('DELETE FROM ingredient_tags WHERE ingredient_id = ?', (id,))
             for tag in data['tags']:
                 cursor.execute(
-                    'INSERT INTO ingredient_tags (ingredient_id, tag) VALUES (?, ?)',
+                    'INSERT INTO ingredient_tags (ingredient_id, tag_id) VALUES (?, ?)',
                     (id, tag)
                 )
         
@@ -590,7 +590,7 @@ def create_formulation():
         cursor.execute('''
             INSERT INTO formulations (
                 product_name, product_type_id, current_version, grammage,
-                pack_count, status, total_cost_per_piece, manufacturing_type,
+                pack_count, status, total_cost_per_piece,
                 notes, created_at, updated_at, created_by
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', (
@@ -601,7 +601,6 @@ def create_formulation():
             data.get('pack_count', 1),
             data.get('status', 'draft'),
             round(total_cost, 4),
-            data.get('manufacturing_type'),
             data.get('notes'),
             datetime.now().isoformat(),
             datetime.now().isoformat(),
@@ -614,7 +613,6 @@ def create_formulation():
         cursor.execute('''
             INSERT INTO formulation_versions (
                 formulation_id, version_number, created_at, created_by,
-                change_notes, ingredient_snapshot, cost_snapshot, grammage
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         ''', (
             formulation_id,
@@ -633,17 +631,15 @@ def create_formulation():
         for idx, ing in enumerate(ingredients):
             cursor.execute('''
                 INSERT INTO formulation_ingredients (
-                    formulation_id, version_id, ingredient_id, percentage,
-                    quantity_grams, cost_per_piece, display_order
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    formulation_id, ingredient_id, percentage,
+                    quantity_grams, cost_per_piece
+                ) VALUES (?, ?, ?, ?, ?)
             ''', (
                 formulation_id,
-                version_id,
                 ing['ingredient_id'],
                 ing['percentage'],
                 ing['quantity_grams'],
                 ing['cost_per_piece'],
-                idx
             ))
         
         # Add benefits
@@ -752,7 +748,7 @@ def update_formulation(id):
             UPDATE formulations SET
                 product_name = ?, product_type_id = ?, current_version = ?,
                 grammage = ?, pack_count = ?, status = ?,
-                total_cost_per_piece = ?, manufacturing_type = ?,
+                total_cost_per_piece = ? = ?,
                 notes = ?, updated_at = ?
             WHERE id = ?
         ''', (
@@ -763,7 +759,6 @@ def update_formulation(id):
             data.get('pack_count', existing['pack_count']),
             data.get('status', existing['status']),
             round(total_cost, 4) if total_cost else existing['total_cost_per_piece'],
-            data.get('manufacturing_type', existing['manufacturing_type']),
             data.get('notes', existing['notes']),
             datetime.now().isoformat(),
             id
@@ -774,7 +769,6 @@ def update_formulation(id):
             cursor.execute('''
                 INSERT INTO formulation_versions (
                     formulation_id, version_number, created_at, created_by,
-                    change_notes, ingredient_snapshot, cost_snapshot, grammage
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
                 id,
@@ -791,24 +785,22 @@ def update_formulation(id):
             
             # Delete old ingredient links for current version and add new ones
             cursor.execute(
-                'DELETE FROM formulation_ingredients WHERE formulation_id = ? AND version_id IS NULL',
+                'DELETE FROM formulation_ingredients WHERE formulation_id = ?',
                 (id,)
             )
             
             for idx, ing in enumerate(ingredients):
                 cursor.execute('''
                     INSERT INTO formulation_ingredients (
-                        formulation_id, version_id, ingredient_id, percentage,
-                        quantity_grams, cost_per_piece, display_order
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                        formulation_id, ingredient_id, percentage,
+                    quantity_grams, cost_per_piece
+                    ) VALUES (?, ?, ?, ?, ?)
                 ''', (
                     id,
-                    version_id,
                     ing['ingredient_id'],
                     ing['percentage'],
                     ing['quantity_grams'],
                     ing['cost_per_piece'],
-                    idx
                 ))
         
         # Update benefits
@@ -873,7 +865,7 @@ def duplicate_formulation(id):
         cursor.execute('''
             INSERT INTO formulations (
                 product_name, product_type_id, current_version, grammage,
-                pack_count, status, total_cost_per_piece, manufacturing_type,
+                pack_count, status, total_cost_per_piece,
                 notes, created_at, updated_at, created_by
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', (
@@ -884,7 +876,6 @@ def duplicate_formulation(id):
             original['pack_count'],
             'draft',
             original['total_cost_per_piece'],
-            original['manufacturing_type'],
             f"Duplicated from {original['product_name']}",
             datetime.now().isoformat(),
             datetime.now().isoformat(),
@@ -909,7 +900,6 @@ def duplicate_formulation(id):
         cursor.execute('''
             INSERT INTO formulation_versions (
                 formulation_id, version_number, created_at, created_by,
-                change_notes, ingredient_snapshot, cost_snapshot, grammage
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         ''', (
             new_formulation_id,
@@ -928,17 +918,15 @@ def duplicate_formulation(id):
         for ing in original_ingredients:
             cursor.execute('''
                 INSERT INTO formulation_ingredients (
-                    formulation_id, version_id, ingredient_id, percentage,
-                    quantity_grams, cost_per_piece, display_order
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    formulation_id, ingredient_id, percentage,
+                    quantity_grams, cost_per_piece
+                ) VALUES (?, ?, ?, ?, ?)
             ''', (
                 new_formulation_id,
-                new_version_id,
                 ing['ingredient_id'],
                 ing['percentage'],
                 ing['quantity_grams'],
                 ing['cost_per_piece'],
-                ing['display_order']
             ))
         
         # Copy benefits
@@ -1015,8 +1003,8 @@ def get_formulation_versions(id):
         
         # Parse ingredient snapshots
         for version in versions:
-            if version.get('ingredient_snapshot'):
-                version['ingredient_snapshot'] = json.loads(version['ingredient_snapshot'])
+            if version.get('ingredients_snapshot'):
+                version['ingredients_snapshot'] = json.loads(version['ingredients_snapshot'])
         
         conn.close()
         
@@ -1063,12 +1051,12 @@ def compare_versions(id):
         v2_dict = dict_from_row(version2)
         
         # Parse snapshots
-        v1_dict['ingredient_snapshot'] = json.loads(v1_dict['ingredient_snapshot']) if v1_dict.get('ingredient_snapshot') else []
-        v2_dict['ingredient_snapshot'] = json.loads(v2_dict['ingredient_snapshot']) if v2_dict.get('ingredient_snapshot') else []
+        v1_dict['ingredients_snapshot'] = json.loads(v1_dict['ingredients_snapshot']) if v1_dict.get('ingredients_snapshot') else []
+        v2_dict['ingredients_snapshot'] = json.loads(v2_dict['ingredients_snapshot']) if v2_dict.get('ingredients_snapshot') else []
         
         # Calculate differences
-        v1_ingredients = {ing['ingredient_id']: ing for ing in v1_dict['ingredient_snapshot']}
-        v2_ingredients = {ing['ingredient_id']: ing for ing in v2_dict['ingredient_snapshot']}
+        v1_ingredients = {ing['ingredient_id']: ing for ing in v1_dict['ingredients_snapshot']}
+        v2_ingredients = {ing['ingredient_id']: ing for ing in v2_dict['ingredients_snapshot']}
         
         added = [ing_id for ing_id in v2_ingredients if ing_id not in v1_ingredients]
         removed = [ing_id for ing_id in v1_ingredients if ing_id not in v2_ingredients]
@@ -1149,7 +1137,6 @@ def restore_version(id, version_id):
         cursor.execute('''
             INSERT INTO formulation_versions (
                 formulation_id, version_number, created_at, created_by,
-                change_notes, ingredient_snapshot, cost_snapshot, grammage
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         ''', (
             id,
@@ -1157,7 +1144,7 @@ def restore_version(id, version_id):
             datetime.now().isoformat(),
             user_id,
             f"Restored from {old_version['version_number']}",
-            old_version['ingredient_snapshot'],
+            old_version['ingredients_snapshot'],
             old_version['cost_snapshot'],
             old_version['grammage']
         ))
@@ -1165,23 +1152,21 @@ def restore_version(id, version_id):
         new_version_id = cursor.lastrowid
         
         # Parse ingredients from snapshot
-        ingredients = json.loads(old_version['ingredient_snapshot'])
+        ingredients = json.loads(old_version['ingredients_snapshot'])
         
         # Insert ingredients
         for idx, ing in enumerate(ingredients):
             cursor.execute('''
                 INSERT INTO formulation_ingredients (
-                    formulation_id, version_id, ingredient_id, percentage,
-                    quantity_grams, cost_per_piece, display_order
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    formulation_id, ingredient_id, percentage,
+                    quantity_grams, cost_per_piece
+                ) VALUES (?, ?, ?, ?, ?)
             ''', (
                 id,
-                new_version_id,
                 ing['ingredient_id'],
                 ing['percentage'],
                 ing.get('quantity_grams'),
                 ing.get('cost_per_piece'),
-                idx
             ))
         
         # Update formulation
@@ -1676,7 +1661,7 @@ def get_benefits():
         conn = get_db()
         cursor = conn.cursor()
         
-        cursor.execute('SELECT * FROM benefit_categories ORDER BY display_order, name')
+        cursor.execute('SELECT * FROM benefit_categories ORDER BY name')
         benefits = [dict_from_row(row) for row in cursor.fetchall()]
         conn.close()
         
