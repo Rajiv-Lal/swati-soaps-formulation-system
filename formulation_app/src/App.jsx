@@ -6,6 +6,8 @@ import Dashboard from './pages/Dashboard';
 import Ingredients from './pages/Ingredients';
 import Formulations from './pages/Formulations';
 import FormulationDetail from './pages/FormulationDetail';
+import FormulationCreate from './pages/FormulationCreate';
+import FormulationEdit from './pages/FormulationEdit';
 
 // Header component with logout and tabs
 function AppHeader({ onLogout, currentPath }) {
@@ -107,7 +109,9 @@ function App() {
           <Route path="/" element={<Navigate to="/ingredients" />} />
           <Route path="/ingredients" element={<Ingredients />} />
           <Route path="/formulations" element={<Formulations />} />
+          <Route path="/formulations/create" element={<FormulationCreate />} />
           <Route path="/formulations/:id" element={<FormulationDetail />} />
+          <Route path="/formulations/:id/edit" element={<FormulationEdit />} />
           <Route path="*" element={<Navigate to="/ingredients" />} />
         </Routes>
       </AppLayout>
