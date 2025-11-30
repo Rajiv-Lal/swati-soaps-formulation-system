@@ -1,0 +1,12 @@
+# Production CORS config:
+# CORS(app, resources={
+#     r"/api/*": {
+#         "origins": [
+#             "http://localhost:3000",  # Development
+#             "http://165.22.222.87",   # Production IP
+#             "https://swatisoaps.com"  # Your actual domain
+#         ],
+#         "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+#         "allow_headers": ["Content-Type", "Authorization"]
+#     }
+# })

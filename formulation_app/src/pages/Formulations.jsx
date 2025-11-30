@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Search, Filter, Edit2, Trash2, AlertCircle, RefreshCw, Eye } from 'lucide-react';
+import { Upload, Plus, Search, Filter, Edit2, Trash2, AlertCircle, RefreshCw, Eye } from 'lucide-react';
 import axios from 'axios';
+import FormulationImportModal from '../components/FormulationImportModal';
 
 const API_BASE_URL = '/api';
 
@@ -15,6 +16,7 @@ const Formulations = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedStatus, setSelectedStatus] = useState('');
   const [showFilters, setShowFilters] = useState(false);
+  const [showImportModal, setShowImportModal] = useState(false);
 
   useEffect(() => {
     loadFormulations();
@@ -113,13 +115,22 @@ const Formulations = () => {
               Manage your soap and cosmetic formulations
             </p>
           </div>
-          <button
-            onClick={() => navigate('/formulations/create')}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
-          >
-            <Plus className="w-5 h-5" />
-            Create Formulation
-          </button>
+          <div className="flex gap-3">
+            <button
+              onClick={() => setShowImportModal(true)}
+              className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors"
+            >
+              <Upload className="w-5 h-5" />
+              Import Excel
+            </button>
+            <button
+              onClick={() => navigate('/formulations/create')}
+              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
+            >
+              <Plus className="w-5 h-5" />
+              Create Formulation
+            </button>
+          </div>
         </div>
 
         {/* Search and Filter Bar */}
@@ -314,6 +325,13 @@ const Formulations = () => {
           </div>
         </div>
       )}
+      
+      {/* Import Modal */}
+      <FormulationImportModal
+        isOpen={showImportModal}
+        onClose={() => setShowImportModal(false)}
+        onSuccess={loadFormulations}
+      />
     </div>
   );
 };

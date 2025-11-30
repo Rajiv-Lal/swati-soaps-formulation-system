@@ -503,7 +503,7 @@ def get_formulation(id):
             JOIN ingredients i ON fi.ingredient_id = i.id
             LEFT JOIN categories c ON i.category_id = c.id
             WHERE fi.formulation_id = ?
-            ORDER BY fi.display_order, i.name
+            ORDER BY i.name
         ''', (id,))
         
         result['ingredients'] = [dict_from_row(row) for row in cursor.fetchall()]
@@ -697,10 +697,10 @@ def update_formulation(id):
             cursor.execute('''
                 SELECT ingredient_id, percentage
                 FROM formulation_ingredients
-                WHERE formulation_id = ? AND version_id = (
-                    SELECT id FROM formulation_versions
-                    WHERE formulation_id = ?
-                    ORDER BY created_at DESC LIMIT 1
+                -- WHERE formulation_id = ? -- AND version_id = (
+                    -- SELECT id FROM formulation_versions
+                    -- WHERE formulation_id = ?
+                    -- ORDER BY created_at DESC LIMIT 1
                 )
             ''', (id, id))
             
@@ -786,7 +786,7 @@ def update_formulation(id):
             
             # Delete old ingredient links for current version and add new ones
             cursor.execute(
-                'DELETE FROM formulation_ingredients WHERE formulation_id = ?',
+                'DELETE FROM formulation_ingredients -- WHERE formulation_id = ?',
                 (id,)
             )
             
@@ -806,7 +806,7 @@ def update_formulation(id):
         
         # Update benefits
         if 'benefits' in data:
-            cursor.execute('DELETE FROM formulation_benefits WHERE formulation_id = ?', (id,))
+            cursor.execute('DELETE FROM formulation_benefits -- WHERE formulation_id = ?', (id,))
             for benefit_id in data['benefits']:
                 cursor.execute(
                     'INSERT INTO formulation_benefits (formulation_id, benefit_id) VALUES (?, ?)',
@@ -815,7 +815,7 @@ def update_formulation(id):
         
         # Update tags
         if 'tags' in data:
-            cursor.execute('DELETE FROM formulation_tags WHERE formulation_id = ?', (id,))
+            cursor.execute('DELETE FROM formulation_tags -- WHERE formulation_id = ?', (id,))
             for tag_id in data['tags']:
                 cursor.execute(
                     'INSERT INTO formulation_tags (formulation_id, tag_id, tagged_by) VALUES (?, ?, ?)',
@@ -888,10 +888,10 @@ def duplicate_formulation(id):
         # Get original ingredients
         cursor.execute('''
             SELECT * FROM formulation_ingredients
-            WHERE formulation_id = ? AND version_id = (
-                SELECT id FROM formulation_versions
-                WHERE formulation_id = ?
-                ORDER BY created_at DESC LIMIT 1
+            -- WHERE formulation_id = ? -- AND version_id = (
+                -- SELECT id FROM formulation_versions
+                -- WHERE formulation_id = ?
+                -- ORDER BY created_at DESC LIMIT 1
             )
         ''', (id, id))
         
@@ -934,13 +934,13 @@ def duplicate_formulation(id):
         # Copy benefits
         cursor.execute('''
             INSERT INTO formulation_benefits (formulation_id, benefit_id)
-            SELECT ?, benefit_id FROM formulation_benefits WHERE formulation_id = ?
+            SELECT ?, benefit_id FROM formulation_benefits -- WHERE formulation_id = ?
         ''', (new_formulation_id, id))
         
         # Copy tags
         cursor.execute('''
             INSERT INTO formulation_tags (formulation_id, tag_id, tagged_by)
-            SELECT ?, tag_id, ? FROM formulation_tags WHERE formulation_id = ?
+            SELECT ?, tag_id, ? FROM formulation_tags -- WHERE formulation_id = ?
         ''', (new_formulation_id, user_id, id))
         
         conn.commit()
@@ -1032,7 +1032,7 @@ def compare_versions(id):
         # Get version 1
         cursor.execute('''
             SELECT * FROM formulation_versions
-            WHERE formulation_id = ? AND version_number = ?
+            -- WHERE formulation_id = ? AND version_number = ?
         ''', (id, v1))
         
         version1 = cursor.fetchone()
@@ -1040,7 +1040,7 @@ def compare_versions(id):
         # Get version 2
         cursor.execute('''
             SELECT * FROM formulation_versions
-            WHERE formulation_id = ? AND version_number = ?
+            -- WHERE formulation_id = ? AND version_number = ?
         ''', (id, v2))
         
         version2 = cursor.fetchone()
@@ -1793,6 +1793,423 @@ def api_root():
 # RUN APPLICATION
 # ============================================================================
 
+
+# CSV IMPORT/EXPORT ENDPOINTS
+# ============================================================================
+
+@app.route('/api/ingredients/template', methods=['GET'])
+@jwt_required()
+def download_ingredients_template():
+    """Download CSV template for bulk ingredient import"""
+    try:
+        import io
+        import csv
+        
+        headers = [
+            'name', 'category_id', 'subcategory_id', 'inci_name', 'cas_number',
+            'landed_cost_net_gst', 'supplier_id', 'hsn_code', 'stock_status',
+            'minimum_order_qty', 'unit_of_measure', 'storage_conditions', 'shelf_life_months'
+        ]
+        
+        sample = [
+            'Coconut Oil', '1', '1', 'Cocos Nucifera Oil', '8001-31-8',
+            '250.50', '1', '1511', 'in_stock',
+            '25', 'kg', 'Cool, dry place', '24'
+        ]
+        
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow(headers)
+        writer.writerow(sample)
+        
+        from flask import make_response
+        response = make_response(output.getvalue())
+        response.headers['Content-Type'] = 'text/csv'
+        response.headers['Content-Disposition'] = 'attachment; filename=ingredients_template.csv'
+        
+        return response
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/ingredients/import', methods=['POST'])
+@jwt_required()
+def import_ingredients():
+    """Import ingredients from CSV file"""
+    try:
+        import csv
+        import io
+        
+        user_id = get_jwt_identity()
+        
+        if 'file' not in request.files:
+            return jsonify({'error': 'No file provided'}), 400
+            
+        file = request.files['file']
+        
+        if not file.filename.endswith('.csv'):
+            return jsonify({'error': 'File must be a CSV'}), 400
+        
+        stream = io.StringIO(file.stream.read().decode("UTF8"), newline=None)
+        csv_reader = csv.DictReader(stream)
+        
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        imported = 0
+        errors = []
+        
+        for row_num, row in enumerate(csv_reader, start=2):
+            try:
+                if not row.get('name') or not row.get('landed_cost_net_gst'):
+                    errors.append(f"Row {row_num}: Missing required fields")
+                    continue
+                
+                cursor.execute('''
+                    INSERT INTO ingredients (
+                        name, category_id, subcategory_id, inci_name, cas_number,
+                        landed_cost_net_gst, supplier_id, hsn_code, stock_status,
+                        minimum_order_qty, unit_of_measure, storage_conditions,
+                        shelf_life_months, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (
+                    row['name'],
+                    row.get('category_id') or None,
+                    row.get('subcategory_id') or None,
+                    row.get('inci_name') or None,
+                    row.get('cas_number') or None,
+                    float(row['landed_cost_net_gst']),
+                    row.get('supplier_id') or None,
+                    row.get('hsn_code') or None,
+                    row.get('stock_status', 'in_stock'),
+                    int(row.get('minimum_order_qty', 1)),
+                    row.get('unit_of_measure', 'kg'),
+                    row.get('storage_conditions') or None,
+                    int(row.get('shelf_life_months', 24)) if row.get('shelf_life_months') else None,
+                    datetime.now().isoformat(),
+                    datetime.now().isoformat()
+                ))
+                
+                imported += 1
+                
+            except Exception as e:
+                errors.append(f"Row {row_num}: {str(e)}")
+        
+        conn.commit()
+        conn.close()
+        
+        return jsonify({
+            'message': 'Import completed',
+            'imported': imported,
+            'errors': errors,
+            'total_rows': imported + len(errors)
+        }), 200
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/formulations/template', methods=['GET'])
+@jwt_required()
+def download_formulations_template():
+    """Download CSV template for formulation import"""
+    try:
+        import io
+        import csv
+        
+        headers = [
+            'product_name', 'product_type_id', 'grammage', 'pack_count', 'status',
+            'ingredient1_id', 'ingredient1_percentage',
+            'ingredient2_id', 'ingredient2_percentage',
+            'ingredient3_id', 'ingredient3_percentage',
+            'notes'
+        ]
+        
+        sample = [
+            'Coconut Soap', '1', '75', '1', 'draft',
+            '1', '40', '2', '35', '3', '25',
+            'Sample formulation'
+        ]
+        
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow(headers)
+        writer.writerow(sample)
+        
+        from flask import make_response
+        response = make_response(output.getvalue())
+        response.headers['Content-Type'] = 'text/csv'
+        response.headers['Content-Disposition'] = 'attachment; filename=formulations_template.csv'
+        
+        return response
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# ============================================================================
+# SMART EXCEL FORMULATION IMPORT
+# ============================================================================
+
+
+# ============================================================================
+# SMART EXCEL FORMULATION IMPORT WITH AUTO-CREATE INGREDIENTS
+# ============================================================================
+
+@app.route('/api/formulations/import-excel', methods=['POST'])
+@jwt_required()
+def import_formulations_from_excel():
+    """Smart import formulations from Excel - auto-creates missing ingredients"""
+    try:
+        import io
+        user_id = get_jwt_identity()
+        
+        if 'file' not in request.files:
+            return jsonify({'error': 'No file provided'}), 400
+            
+        file = request.files['file']
+        
+        if not (file.filename.endswith('.xlsx') or file.filename.endswith('.xls')):
+            return jsonify({'error': 'File must be Excel (.xlsx or .xls)'}), 400
+        
+        # Read Excel file
+        import openpyxl
+        wb = openpyxl.load_workbook(io.BytesIO(file.read()), data_only=True)
+        
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        results = {
+            'sheets_processed': 0,
+            'formulations_created': 0,
+            'ingredients_matched': 0,
+            'ingredients_created': 0,
+            'ingredients_not_found': [],
+            'errors': []
+        }
+        
+        # Process each sheet
+        for sheet_name in wb.sheetnames:
+            try:
+                ws = wb[sheet_name]
+                
+                # Extract formulation data
+                formulation_data = {
+                    'product_name': sheet_name,
+                    'grammage': None,
+                    'pack_count': None,
+                    'ingredients': []
+                }
+                
+                # Find grammage and pack count
+                for row in ws.iter_rows(min_row=4, max_row=7, values_only=True):
+                    if row[0] and 'grammage' in str(row[0]).lower():
+                        formulation_data['grammage'] = float(row[1]) if row[1] else 75
+                    if row[0] and 'piece per case' in str(row[0]).lower():
+                        formulation_data['pack_count'] = int(row[1]) if row[1] else 1
+                
+                if not formulation_data['grammage']:
+                    formulation_data['grammage'] = 75
+                if not formulation_data['pack_count']:
+                    formulation_data['pack_count'] = 1
+                
+                # Find ingredients section
+                ingredient_start_row = None
+                for idx, row in enumerate(ws.iter_rows(values_only=True), 1):
+                    if row[0] and 'particulars' in str(row[0]).lower():
+                        ingredient_start_row = idx + 1
+                        break
+                
+                if not ingredient_start_row:
+                    results['errors'].append(f"Sheet '{sheet_name}': Could not find ingredients section")
+                    continue
+                
+                # Extract ingredients
+                for row in ws.iter_rows(min_row=ingredient_start_row, values_only=True):
+                    ingredient_name = row[0]  # Column A
+                    supplier_name = row[1]    # Column B
+                    percentage = row[2]        # Column C
+                    hsn_code = row[3]         # Column D
+                    gst_rate = row[4]         # Column E
+                    cost = row[5]             # Column F (BASIC cost)
+                    
+                    if not ingredient_name or not percentage:
+                        break
+                    
+                    if 'total' in str(ingredient_name).lower():
+                        break
+                    
+                    # Try to find ingredient in database
+                    cursor.execute('''
+                        SELECT id, landed_cost_net_gst 
+                        FROM ingredients 
+                        WHERE LOWER(name) = LOWER(?)
+                    ''', (str(ingredient_name).strip(),))
+                    
+                    ingredient_match = cursor.fetchone()
+                    
+                    if ingredient_match:
+                        # Ingredient exists - use it
+                        ingredient_id = ingredient_match[0]
+                        unit_cost = ingredient_match[1]
+                        results['ingredients_matched'] += 1
+                    else:
+                        # Ingredient doesn't exist - AUTO-CREATE IT
+                        try:
+                            # Find or create supplier
+                            supplier_id = None
+                            if supplier_name:
+                                cursor.execute('''
+                                    SELECT id FROM suppliers 
+                                    WHERE LOWER(name) = LOWER(?)
+                                ''', (str(supplier_name).strip(),))
+                                supplier_result = cursor.fetchone()
+                                
+                                if supplier_result:
+                                    supplier_id = supplier_result[0]
+                                else:
+                                    # Create supplier
+                                    cursor.execute('''
+                                        INSERT INTO suppliers (name, created_at)
+                                        VALUES (?, ?)
+                                    ''', (
+                                        str(supplier_name).strip(),
+                                        datetime.now().isoformat()
+                                    ))
+                                    supplier_id = cursor.lastrowid
+                            
+                            # Create ingredient with available data
+                            unit_cost = float(cost) if cost else 0
+                            
+                            # Get or create "Uncategorized" category
+                            cursor.execute('''
+                                SELECT id FROM categories WHERE name = ? LIMIT 1
+                            ''', ('Uncategorized',))
+                            category_result = cursor.fetchone()
+                            
+                            if not category_result:
+                                cursor.execute('''
+                                    INSERT INTO categories (name, created_at)
+                                    VALUES (?, ?)
+                                ''', ('Uncategorized', datetime.now().isoformat()))
+                                category_id = cursor.lastrowid
+                            else:
+                                category_id = category_result[0]
+                            
+                            cursor.execute('''
+                                INSERT INTO ingredients (
+                                    name, category_id, supplier_id, landed_cost_net_gst,
+                                    hsn_code, stock_status, unit_of_measure,
+                                    created_at, updated_at
+                                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            ''', (
+                                str(ingredient_name).strip(),
+                                category_id,
+                                supplier_id,
+                                unit_cost,
+                                str(hsn_code).strip() if hsn_code else None,
+                                'in_stock',
+                                'kg',
+                                datetime.now().isoformat(),
+                                datetime.now().isoformat()
+                            ))
+                            
+                            ingredient_id = cursor.lastrowid
+                            results['ingredients_created'] += 1
+
+                            
+                        except Exception as e:
+                            results['errors'].append(f"Failed to create ingredient '{ingredient_name}': {str(e)}")
+                            continue
+                    
+                    # Add ingredient to formulation data
+                    formulation_data['ingredients'].append({
+                        'ingredient_id': ingredient_id,
+                        'ingredient_name': ingredient_name,
+                        'percentage': float(percentage) * 100,  # Convert 0.9467 to 94.67
+                        'unit_cost': unit_cost
+                    })
+                
+                # Create formulation if we have ingredients
+                if len(formulation_data['ingredients']) > 0:
+                    # Get product type
+                    cursor.execute('SELECT id FROM product_types WHERE name = ? LIMIT 1', ('Soap',))
+                    product_type_result = cursor.fetchone()
+                    product_type_id = product_type_result[0] if product_type_result else 1
+                    
+                    # Insert formulation
+                    cursor.execute('''
+                        INSERT INTO formulations (
+                            product_name, product_type_id, grammage, pack_count,
+                            status, current_version, created_by, created_at, updated_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ''', (
+                        formulation_data['product_name'],
+                        product_type_id,
+                        formulation_data['grammage'],
+                        formulation_data['pack_count'],
+                        'draft',
+                        1,
+                        user_id,
+                        datetime.now().isoformat(),
+                        datetime.now().isoformat()
+                    ))
+                    
+                    formulation_id = cursor.lastrowid
+                    
+                    # Insert formulation ingredients
+                    for ing in formulation_data['ingredients']:
+                        quantity_grams = (ing['percentage'] / 100) * formulation_data['grammage']
+                        cost_per_piece = (quantity_grams / 1000) * ing['unit_cost']
+                        
+                        cursor.execute('''
+                            INSERT INTO formulation_ingredients (
+                                formulation_id, ingredient_id, percentage,
+                                quantity_grams, cost_per_piece
+                            ) VALUES (?, ?, ?, ?, ?)
+                        ''', (
+                            formulation_id,
+                            ing['ingredient_id'],
+                            ing['percentage'],
+                            quantity_grams,
+                            cost_per_piece
+                        ))
+                    
+                    # Calculate and update total cost
+                    cursor.execute('''
+                        SELECT SUM(cost_per_piece) as total_cost
+                        FROM formulation_ingredients
+                        -- WHERE formulation_id = ?
+                    ''', (formulation_id,))
+                    total_result = cursor.fetchone()
+                    total_cost = total_result[0] if total_result[0] else 0
+                    
+                    cursor.execute('''
+                        UPDATE formulations
+                        SET total_cost_per_piece = ?
+                        WHERE id = ?
+                    ''', (round(total_cost, 4), formulation_id))
+                    
+                    results['formulations_created'] += 1
+                
+                results['sheets_processed'] += 1
+                
+            except Exception as e:
+                results['errors'].append(f"Sheet '{sheet_name}': {str(e)}")
+        
+        conn.commit()
+        conn.close()
+        
+        return jsonify({
+            'message': f'Import completed',
+            'sheets_processed': results['sheets_processed'],
+            'formulations_created': results['formulations_created'],
+            'ingredients_matched': results['ingredients_matched'],
+            'ingredients_created': results['ingredients_created'],
+            'errors': results['errors']
+        }), 200
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 if __name__ == '__main__':
     # Check if database exists
     if not os.path.exists(app.config['DATABASE']):
@@ -1812,3 +2229,5 @@ if __name__ == '__main__':
     print(f"\n💡 Press Ctrl+C to stop the server\n")
     
     app.run(debug=True, host='0.0.0.0', port=5000)
+
+# ============================================================================
