@@ -5,6 +5,7 @@ Version: 2.0 (Session 1 Enhanced)
 """
 
 from flask import Flask, request, jsonify
+from ingredients_api import ingredients_bp
 from flask_cors import CORS
 from flask_jwt_extended import JWTManager, create_access_token, jwt_required, get_jwt_identity
 from datetime import datetime, timedelta
@@ -22,6 +23,8 @@ app.config['JWT_ACCESS_TOKEN_EXPIRES'] = timedelta(hours=24)
 app.config['DATABASE'] = os.environ.get('DATABASE_PATH', 'swati_soaps.db')
 
 # Initialize extensions
+# Register ingredients API blueprint
+app.register_blueprint(ingredients_bp)
 CORS(app)  # Allow all origins
 jwt = JWTManager(app)
 
