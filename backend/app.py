@@ -25,7 +25,7 @@ app.config['DATABASE'] = os.environ.get('DATABASE_PATH', 'swati_soaps.db')
 # Initialize extensions
 # Register ingredients API blueprint
 app.register_blueprint(ingredients_bp)
-CORS(app)  # Allow all origins
+CORS(app, origins=["http://localhost:3000", "http://165.22.222.87:3000"])
 jwt = JWTManager(app)
 
 # Database connection helper
