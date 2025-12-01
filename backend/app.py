@@ -1912,55 +1912,55 @@ def api_root():
 #             except Exception as e:
 #                 errors.append(f"Row {row_num}: {str(e)}")
         
-        conn.commit()
-        conn.close()
+#         conn.commit()
+#         conn.close()
+#         
+#         return jsonify({
+#             'message': 'Import completed',
+#             'imported': imported,
+#             'errors': errors,
+#             'total_rows': imported + len(errors)
+#         }), 200
+#         
+#     except Exception as e:
+#         return jsonify({'error': str(e)}), 500
+# 
+# @app.route('/api/formulations/template', methods=['GET'])
+# @jwt_required()
+# def download_formulations_template():
+#     """Download CSV template for formulation import"""
+#     try:
+#         import io
+#         import csv
         
-        return jsonify({
-            'message': 'Import completed',
-            'imported': imported,
-            'errors': errors,
-            'total_rows': imported + len(errors)
-        }), 200
+#         headers = [
+#             'product_name', 'product_type_id', 'grammage', 'pack_count', 'status',
+#             'ingredient1_id', 'ingredient1_percentage',
+#             'ingredient2_id', 'ingredient2_percentage',
+#             'ingredient3_id', 'ingredient3_percentage',
+#             'notes'
+#         ]
         
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-@app.route('/api/formulations/template', methods=['GET'])
-@jwt_required()
-def download_formulations_template():
-    """Download CSV template for formulation import"""
-    try:
-        import io
-        import csv
+#         sample = [
+#             'Coconut Soap', '1', '75', '1', 'draft',
+#             '1', '40', '2', '35', '3', '25',
+#             'Sample formulation'
+#         ]
         
-        headers = [
-            'product_name', 'product_type_id', 'grammage', 'pack_count', 'status',
-            'ingredient1_id', 'ingredient1_percentage',
-            'ingredient2_id', 'ingredient2_percentage',
-            'ingredient3_id', 'ingredient3_percentage',
-            'notes'
-        ]
+#         output = io.StringIO()
+#         writer = csv.writer(output)
+#         writer.writerow(headers)
+#         writer.writerow(sample)
         
-        sample = [
-            'Coconut Soap', '1', '75', '1', 'draft',
-            '1', '40', '2', '35', '3', '25',
-            'Sample formulation'
-        ]
+#         from flask import make_response
+#         response = make_response(output.getvalue())
+#         response.headers['Content-Type'] = 'text/csv'
+#         response.headers['Content-Disposition'] = 'attachment; filename=formulations_template.csv'
         
-        output = io.StringIO()
-        writer = csv.writer(output)
-        writer.writerow(headers)
-        writer.writerow(sample)
+#         return response
         
-        from flask import make_response
-        response = make_response(output.getvalue())
-        response.headers['Content-Type'] = 'text/csv'
-        response.headers['Content-Disposition'] = 'attachment; filename=formulations_template.csv'
-        
-        return response
-        
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+#     except Exception as e:
+#         return jsonify({'error': str(e)}), 500
 
 
 # ============================================================================
