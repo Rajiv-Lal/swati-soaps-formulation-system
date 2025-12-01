@@ -125,257 +125,265 @@ def get_current_user():
 # INGREDIENT ENDPOINTS
 # ============================================================================
 
-@app.route('/api/ingredients', methods=['GET'])
-@jwt_required()
-def get_ingredients():
-    """Get all ingredients with optional filtering"""
-    try:
-        # Query parameters
-        category_id = request.args.get('category_id')
-        search = request.args.get('search')
-        tag = request.args.get('tag')
-        
-        conn = get_db()
-        cursor = conn.cursor()
-        
-        query = '''
-            SELECT i.*, c.name as category_name, sc.name as subcategory_name,
-                   s.name as supplier_name
-            FROM ingredients i
-            LEFT JOIN categories c ON i.category_id = c.id
-            LEFT JOIN subcategories sc ON i.subcategory_id = sc.id
-            LEFT JOIN suppliers s ON i.supplier_id = s.id
-            WHERE 1=1
-        '''
-        params = []
-        
-        if category_id:
-            query += ' AND i.category_id = ?'
-            params.append(category_id)
-        
-        if search:
-            query += ' AND (i.name LIKE ? OR i.inci_name LIKE ?)'
-            search_term = f'%{search}%'
-            params.extend([search_term, search_term])
-        
-        if tag:
-            query += ''' AND i.id IN (
-                SELECT ingredient_id FROM ingredient_tags WHERE tag = ?
-            )'''
-            params.append(tag)
-        
-        query += ' ORDER BY i.name'
-        
-        cursor.execute(query, params)
-        ingredients = [dict_from_row(row) for row in cursor.fetchall()]
-        conn.close()
-        
-        return jsonify({'ingredients': ingredients}), 200
-        
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
 
-@app.route('/api/ingredients/<int:id>', methods=['GET'])
-@jwt_required()
-def get_ingredient(id):
-    """Get single ingredient"""
-    try:
-        conn = get_db()
-        cursor = conn.cursor()
+# ============================================================================
+# OLD INGREDIENT ROUTES - DISABLED (Replaced by ingredients_api.py)
+# These routes conflict with the new blueprint and use old schema
+# DO NOT UNCOMMENT - Use ingredients_api.py instead
+# ============================================================================
+# COMMENTED OUT: Lines 128-380 (5 routes)
+# ============================================================================
+# @app.route('/api/ingredients', methods=['GET'])
+# @jwt_required()
+# def get_ingredients():
+#     """Get all ingredients with optional filtering"""
+#     try:
+        # Query parameters
+#         category_id = request.args.get('category_id')
+#         search = request.args.get('search')
+#         tag = request.args.get('tag')
         
-        cursor.execute('''
-            SELECT i.*, c.name as category_name, sc.name as subcategory_name,
-                   s.name as supplier_name
-            FROM ingredients i
-            LEFT JOIN categories c ON i.category_id = c.id
-            LEFT JOIN subcategories sc ON i.subcategory_id = sc.id
-            LEFT JOIN suppliers s ON i.supplier_id = s.id
-            WHERE i.id = ?
-        ''', (id,))
+#         conn = get_db()
+#         cursor = conn.cursor()
         
-        ingredient = cursor.fetchone()
+#         query = '''
+#             SELECT i.*, c.name as category_name, sc.name as subcategory_name,
+#                    s.name as supplier_name
+#             FROM ingredients i
+#             LEFT JOIN categories c ON i.category_id = c.id
+#             LEFT JOIN subcategories sc ON i.subcategory_id = sc.id
+#             LEFT JOIN suppliers s ON i.supplier_id = s.id
+#             WHERE 1=1
+#         '''
+#         params = []
         
-        if not ingredient:
-            conn.close()
-            return jsonify({'error': 'Ingredient not found'}), 404
+#         if category_id:
+#             query += ' AND i.category_id = ?'
+#             params.append(category_id)
+        
+#         if search:
+#             query += ' AND (i.name LIKE ? OR i.inci_name LIKE ?)'
+#             search_term = f'%{search}%'
+#             params.extend([search_term, search_term])
+        
+#         if tag:
+#             query += ''' AND i.id IN (
+#                 SELECT ingredient_id FROM ingredient_tags WHERE tag = ?
+#             )'''
+#             params.append(tag)
+        
+#         query += ' ORDER BY i.name'
+        
+#         cursor.execute(query, params)
+#         ingredients = [dict_from_row(row) for row in cursor.fetchall()]
+#         conn.close()
+        
+#         return jsonify({'ingredients': ingredients}), 200
+        
+#     except Exception as e:
+#         return jsonify({'error': str(e)}), 500
+
+# @app.route('/api/ingredients/<int:id>', methods=['GET'])
+# @jwt_required()
+# def get_ingredient(id):
+#     """Get single ingredient"""
+#     try:
+#         conn = get_db()
+#         cursor = conn.cursor()
+        
+#         cursor.execute('''
+#             SELECT i.*, c.name as category_name, sc.name as subcategory_name,
+#                    s.name as supplier_name
+#             FROM ingredients i
+#             LEFT JOIN categories c ON i.category_id = c.id
+#             LEFT JOIN subcategories sc ON i.subcategory_id = sc.id
+#             LEFT JOIN suppliers s ON i.supplier_id = s.id
+#             WHERE i.id = ?
+#         ''', (id,))
+        
+#         ingredient = cursor.fetchone()
+        
+#         if not ingredient:
+#             conn.close()
+#             return jsonify({'error': 'Ingredient not found'}), 404
         
         # Get tags
-        cursor.execute('SELECT t.name as tag FROM ingredient_tags it JOIN tags t ON it.tag_id = t.id WHERE it.ingredient_id = ?', (id,))
-        tags = [row['tag'] for row in cursor.fetchall()]
+#         cursor.execute('SELECT t.name as tag FROM ingredient_tags it JOIN tags t ON it.tag_id = t.id WHERE it.ingredient_id = ?', (id,))
+#         tags = [row['tag'] for row in cursor.fetchall()]
         
-        conn.close()
+#         conn.close()
         
-        result = dict_from_row(ingredient)
-        result['tags'] = tags
+#         result = dict_from_row(ingredient)
+#         result['tags'] = tags
         
-        return jsonify({'ingredient': result}), 200
+#         return jsonify({'ingredient': result}), 200
         
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+#     except Exception as e:
+#         return jsonify({'error': str(e)}), 500
 
-@app.route('/api/ingredients', methods=['POST'])
-@jwt_required()
-def create_ingredient():
-    """Create new ingredient"""
-    try:
-        data = request.get_json()
+# @app.route('/api/ingredients', methods=['POST'])
+# @jwt_required()
+# def create_ingredient():
+#     """Create new ingredient"""
+#     try:
+#         data = request.get_json()
         
         # Validation
-        if not data.get('name'):
-            return jsonify({'error': 'Ingredient name is required'}), 400
+#         if not data.get('name'):
+#             return jsonify({'error': 'Ingredient name is required'}), 400
         
-        conn = get_db()
-        cursor = conn.cursor()
+#         conn = get_db()
+#         cursor = conn.cursor()
         
         # Check for duplicate name
-        cursor.execute('SELECT id FROM ingredients WHERE name = ?', (data['name'],))
-        if cursor.fetchone():
-            conn.close()
-            return jsonify({'error': 'Ingredient name already exists'}), 400
+#         cursor.execute('SELECT id FROM ingredients WHERE name = ?', (data['name'],))
+#         if cursor.fetchone():
+#             conn.close()
+#             return jsonify({'error': 'Ingredient name already exists'}), 400
         
         # Insert ingredient
-        cursor.execute('''
-            INSERT INTO ingredients (
-                name, category_id, subcategory_id, landed_cost_net_gst,
-                stock_status, supplier_id, hsn_code, cas_number, inci_name,
-                minimum_order_qty, unit_of_measure, storage_conditions,
-                shelf_life_months, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (
-            data['name'],
-            data.get('category_id'),
-            data.get('subcategory_id'),
-            data.get('landed_cost_net_gst', 0),
-            data.get('stock_status', 'in_stock'),
-            data.get('supplier_id'),
-            data.get('hsn_code'),
-            data.get('cas_number'),
-            data.get('inci_name'),
-            data.get('minimum_order_qty', 1),
-            data.get('unit_of_measure', 'kg'),
-            data.get('storage_conditions'),
-            data.get('shelf_life_months'),
-            datetime.now().isoformat(),
-            datetime.now().isoformat()
-        ))
+#         cursor.execute('''
+#             INSERT INTO ingredients (
+#                 name, category_id, subcategory_id, landed_cost_net_gst,
+#                 stock_status, supplier_id, hsn_code, cas_number, inci_name,
+#                 minimum_order_qty, unit_of_measure, storage_conditions,
+#                 shelf_life_months, created_at, updated_at
+#             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+#         ''', (
+#             data['name'],
+#             data.get('category_id'),
+#             data.get('subcategory_id'),
+#             data.get('landed_cost_net_gst', 0),
+#             data.get('stock_status', 'in_stock'),
+#             data.get('supplier_id'),
+#             data.get('hsn_code'),
+#             data.get('cas_number'),
+#             data.get('inci_name'),
+#             data.get('minimum_order_qty', 1),
+#             data.get('unit_of_measure', 'kg'),
+#             data.get('storage_conditions'),
+#             data.get('shelf_life_months'),
+#             datetime.now().isoformat(),
+#             datetime.now().isoformat()
+#         ))
         
-        ingredient_id = cursor.lastrowid
+#         ingredient_id = cursor.lastrowid
         
         # Add tags if provided
-        tags = data.get('tags', [])
-        for tag in tags:
-            cursor.execute(
-                'INSERT INTO ingredient_tags (ingredient_id, tag_id) VALUES (?, ?)',
-                (ingredient_id, tag_id)
-            )
+#         tags = data.get('tags', [])
+#         for tag in tags:
+#             cursor.execute(
+#                 'INSERT INTO ingredient_tags (ingredient_id, tag_id) VALUES (?, ?)',
+#                 (ingredient_id, tag_id)
+#             )
         
-        conn.commit()
-        conn.close()
+#         conn.commit()
+#         conn.close()
         
-        return jsonify({
-            'message': 'Ingredient created successfully',
-            'ingredient_id': ingredient_id
-        }), 201
+#         return jsonify({
+#             'message': 'Ingredient created successfully',
+#             'ingredient_id': ingredient_id
+#         }), 201
         
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+#     except Exception as e:
+#         return jsonify({'error': str(e)}), 500
 
-@app.route('/api/ingredients/<int:id>', methods=['PUT'])
-@jwt_required()
-def update_ingredient(id):
-    """Update ingredient"""
-    try:
-        data = request.get_json()
+# @app.route('/api/ingredients/<int:id>', methods=['PUT'])
+# @jwt_required()
+# def update_ingredient(id):
+#     """Update ingredient"""
+#     try:
+#         data = request.get_json()
         
-        conn = get_db()
-        cursor = conn.cursor()
+#         conn = get_db()
+#         cursor = conn.cursor()
         
         # Check if exists
-        cursor.execute('SELECT id FROM ingredients WHERE id = ?', (id,))
-        if not cursor.fetchone():
-            conn.close()
-            return jsonify({'error': 'Ingredient not found'}), 404
+#         cursor.execute('SELECT id FROM ingredients WHERE id = ?', (id,))
+#         if not cursor.fetchone():
+#             conn.close()
+#             return jsonify({'error': 'Ingredient not found'}), 404
         
         # Update ingredient
-        cursor.execute('''
-            UPDATE ingredients SET
-                name = ?, category_id = ?, subcategory_id = ?,
-                landed_cost_net_gst = ?, stock_status = ?, supplier_id = ?,
-                hsn_code = ?, cas_number = ?, inci_name = ?,
-                minimum_order_qty = ?, unit_of_measure = ?,
-                storage_conditions = ?, shelf_life_months = ?,
-                updated_at = ?
-            WHERE id = ?
-        ''', (
-            data.get('name'),
-            data.get('category_id'),
-            data.get('subcategory_id'),
-            data.get('landed_cost_net_gst'),
-            data.get('stock_status'),
-            data.get('supplier_id'),
-            data.get('hsn_code'),
-            data.get('cas_number'),
-            data.get('inci_name'),
-            data.get('minimum_order_qty'),
-            data.get('unit_of_measure'),
-            data.get('storage_conditions'),
-            data.get('shelf_life_months'),
-            datetime.now().isoformat(),
-            id
-        ))
+#         cursor.execute('''
+#             UPDATE ingredients SET
+#                 name = ?, category_id = ?, subcategory_id = ?,
+#                 landed_cost_net_gst = ?, stock_status = ?, supplier_id = ?,
+#                 hsn_code = ?, cas_number = ?, inci_name = ?,
+#                 minimum_order_qty = ?, unit_of_measure = ?,
+#                 storage_conditions = ?, shelf_life_months = ?,
+#                 updated_at = ?
+#             WHERE id = ?
+#         ''', (
+#             data.get('name'),
+#             data.get('category_id'),
+#             data.get('subcategory_id'),
+#             data.get('landed_cost_net_gst'),
+#             data.get('stock_status'),
+#             data.get('supplier_id'),
+#             data.get('hsn_code'),
+#             data.get('cas_number'),
+#             data.get('inci_name'),
+#             data.get('minimum_order_qty'),
+#             data.get('unit_of_measure'),
+#             data.get('storage_conditions'),
+#             data.get('shelf_life_months'),
+#             datetime.now().isoformat(),
+#             id
+#         ))
         
         # Update tags
-        if 'tags' in data:
-            cursor.execute('DELETE FROM ingredient_tags WHERE ingredient_id = ?', (id,))
-            for tag in data['tags']:
-                cursor.execute(
-                    'INSERT INTO ingredient_tags (ingredient_id, tag_id) VALUES (?, ?)',
-                    (id, tag)
-                )
+#         if 'tags' in data:
+#             cursor.execute('DELETE FROM ingredient_tags WHERE ingredient_id = ?', (id,))
+#             for tag in data['tags']:
+#                 cursor.execute(
+#                     'INSERT INTO ingredient_tags (ingredient_id, tag_id) VALUES (?, ?)',
+#                     (id, tag)
+#                 )
         
-        conn.commit()
-        conn.close()
+#         conn.commit()
+#         conn.close()
         
-        return jsonify({'message': 'Ingredient updated successfully'}), 200
+#         return jsonify({'message': 'Ingredient updated successfully'}), 200
         
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+#     except Exception as e:
+#         return jsonify({'error': str(e)}), 500
 
-@app.route('/api/ingredients/<int:id>', methods=['DELETE'])
-@jwt_required()
-def delete_ingredient(id):
-    """Delete ingredient"""
-    try:
-        conn = get_db()
-        cursor = conn.cursor()
+# @app.route('/api/ingredients/<int:id>', methods=['DELETE'])
+# @jwt_required()
+# def delete_ingredient(id):
+#     """Delete ingredient"""
+#     try:
+#         conn = get_db()
+#         cursor = conn.cursor()
         
         # Check if ingredient is used in any formulations
-        cursor.execute(
-            'SELECT COUNT(*) as count FROM formulation_ingredients WHERE ingredient_id = ?',
-            (id,)
-        )
-        count = cursor.fetchone()['count']
+#         cursor.execute(
+#             'SELECT COUNT(*) as count FROM formulation_ingredients WHERE ingredient_id = ?',
+#             (id,)
+#         )
+#         count = cursor.fetchone()['count']
         
-        if count > 0:
-            conn.close()
-            return jsonify({
-                'error': f'Cannot delete. Ingredient is used in {count} formulation(s)'
-            }), 400
+#         if count > 0:
+#             conn.close()
+#             return jsonify({
+#                 'error': f'Cannot delete. Ingredient is used in {count} formulation(s)'
+#             }), 400
         
         # Delete ingredient (cascade will delete tags)
-        cursor.execute('DELETE FROM ingredients WHERE id = ?', (id,))
+#         cursor.execute('DELETE FROM ingredients WHERE id = ?', (id,))
         
-        if cursor.rowcount == 0:
-            conn.close()
-            return jsonify({'error': 'Ingredient not found'}), 404
+#         if cursor.rowcount == 0:
+#             conn.close()
+#             return jsonify({'error': 'Ingredient not found'}), 404
         
-        conn.commit()
-        conn.close()
+#         conn.commit()
+#         conn.close()
         
-        return jsonify({'message': 'Ingredient deleted successfully'}), 200
+#         return jsonify({'message': 'Ingredient deleted successfully'}), 200
         
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+#     except Exception as e:
+#         return jsonify({'error': str(e)}), 500
 
 # ============================================================================
 # CATEGORY ENDPOINTS
@@ -1800,103 +1808,109 @@ def api_root():
 # CSV IMPORT/EXPORT ENDPOINTS
 # ============================================================================
 
-@app.route('/api/ingredients/template', methods=['GET'])
-@jwt_required()
-def download_ingredients_template():
-    """Download CSV template for bulk ingredient import"""
-    try:
-        import io
-        import csv
-        
-        headers = [
-            'name', 'category_id', 'subcategory_id', 'inci_name', 'cas_number',
-            'landed_cost_net_gst', 'supplier_id', 'hsn_code', 'stock_status',
-            'minimum_order_qty', 'unit_of_measure', 'storage_conditions', 'shelf_life_months'
-        ]
-        
-        sample = [
-            'Coconut Oil', '1', '1', 'Cocos Nucifera Oil', '8001-31-8',
-            '250.50', '1', '1511', 'in_stock',
-            '25', 'kg', 'Cool, dry place', '24'
-        ]
-        
-        output = io.StringIO()
-        writer = csv.writer(output)
-        writer.writerow(headers)
-        writer.writerow(sample)
-        
-        from flask import make_response
-        response = make_response(output.getvalue())
-        response.headers['Content-Type'] = 'text/csv'
-        response.headers['Content-Disposition'] = 'attachment; filename=ingredients_template.csv'
-        
-        return response
-        
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
 
-@app.route('/api/ingredients/import', methods=['POST'])
-@jwt_required()
-def import_ingredients():
-    """Import ingredients from CSV file"""
-    try:
-        import csv
-        import io
+# ============================================================================
+# OLD INGREDIENT IMPORT ROUTES - DISABLED
+# These routes use old schema - replaced by ingredients_api.py
+# ============================================================================
+# COMMENTED OUT: Lines 1803-1900 (2 routes)
+# ============================================================================
+# @jwt_required()
+# def download_ingredients_template():
+#     """Download CSV template for bulk ingredient import"""
+#     try:
+#         import io
+#         import csv
         
-        user_id = get_jwt_identity()
+#         headers = [
+#             'name', 'category_id', 'subcategory_id', 'inci_name', 'cas_number',
+#             'landed_cost_net_gst', 'supplier_id', 'hsn_code', 'stock_status',
+#             'minimum_order_qty', 'unit_of_measure', 'storage_conditions', 'shelf_life_months'
+#         ]
         
-        if 'file' not in request.files:
-            return jsonify({'error': 'No file provided'}), 400
+#         sample = [
+#             'Coconut Oil', '1', '1', 'Cocos Nucifera Oil', '8001-31-8',
+#             '250.50', '1', '1511', 'in_stock',
+#             '25', 'kg', 'Cool, dry place', '24'
+#         ]
+        
+#         output = io.StringIO()
+#         writer = csv.writer(output)
+#         writer.writerow(headers)
+#         writer.writerow(sample)
+        
+#         from flask import make_response
+#         response = make_response(output.getvalue())
+#         response.headers['Content-Type'] = 'text/csv'
+#         response.headers['Content-Disposition'] = 'attachment; filename=ingredients_template.csv'
+        
+#         return response
+        
+#     except Exception as e:
+#         return jsonify({'error': str(e)}), 500
+
+# @app.route('/api/ingredients/import', methods=['POST'])
+# @jwt_required()
+# def import_ingredients():
+#     """Import ingredients from CSV file"""
+#     try:
+#         import csv
+#         import io
+        
+#         user_id = get_jwt_identity()
+        
+#         if 'file' not in request.files:
+#             return jsonify({'error': 'No file provided'}), 400
             
-        file = request.files['file']
+#         file = request.files['file']
         
-        if not file.filename.endswith('.csv'):
-            return jsonify({'error': 'File must be a CSV'}), 400
+#         if not file.filename.endswith('.csv'):
+#             return jsonify({'error': 'File must be a CSV'}), 400
         
-        stream = io.StringIO(file.stream.read().decode("UTF8"), newline=None)
-        csv_reader = csv.DictReader(stream)
+#         stream = io.StringIO(file.stream.read().decode("UTF8"), newline=None)
+#         csv_reader = csv.DictReader(stream)
         
-        conn = get_db()
-        cursor = conn.cursor()
+#         conn = get_db()
+#         cursor = conn.cursor()
         
-        imported = 0
-        errors = []
+#         imported = 0
+#         errors = []
         
-        for row_num, row in enumerate(csv_reader, start=2):
-            try:
-                if not row.get('name') or not row.get('landed_cost_net_gst'):
-                    errors.append(f"Row {row_num}: Missing required fields")
-                    continue
+#         for row_num, row in enumerate(csv_reader, start=2):
+#             try:
+#                 if not row.get('name') or not row.get('landed_cost_net_gst'):
+#                     errors.append(f"Row {row_num}: Missing required fields")
+#                     continue
                 
-                cursor.execute('''
-                    INSERT INTO ingredients (
-                        name, category_id, subcategory_id, inci_name, cas_number,
-                        landed_cost_net_gst, supplier_id, hsn_code, stock_status,
-                        minimum_order_qty, unit_of_measure, storage_conditions,
-                        shelf_life_months, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ''', (
-                    row['name'],
-                    row.get('category_id') or None,
-                    row.get('subcategory_id') or None,
-                    row.get('inci_name') or None,
-                    row.get('cas_number') or None,
-                    float(row['landed_cost_net_gst']),
-                    row.get('supplier_id') or None,
-                    row.get('hsn_code') or None,
-                    row.get('stock_status', 'in_stock'),
-                    int(row.get('minimum_order_qty', 1)),
-                    row.get('unit_of_measure', 'kg'),
-                    row.get('storage_conditions') or None,
-                    int(row.get('shelf_life_months', 24)) if row.get('shelf_life_months') else None,
-                    datetime.now().isoformat(),
-                    datetime.now().isoformat()
-                ))
+#                 cursor.execute('''
+#                     INSERT INTO ingredients (
+#                         name, category_id, subcategory_id, inci_name, cas_number,
+#                         landed_cost_net_gst, supplier_id, hsn_code, stock_status,
+#                         minimum_order_qty, unit_of_measure, storage_conditions,
+#                         shelf_life_months, created_at, updated_at
+#                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+#                 ''', (
+#                     row['name'],
+#                     row.get('category_id') or None,
+#                     row.get('subcategory_id') or None,
+#                     row.get('inci_name') or None,
+#                     row.get('cas_number') or None,
+#                     float(row['landed_cost_net_gst']),
+#                     row.get('supplier_id') or None,
+#                     row.get('hsn_code') or None,
+#                     row.get('stock_status', 'in_stock'),
+#                     int(row.get('minimum_order_qty', 1)),
+#                     row.get('unit_of_measure', 'kg'),
+#                     row.get('storage_conditions') or None,
+#                     int(row.get('shelf_life_months', 24)) if row.get('shelf_life_months') else None,
+#                     datetime.now().isoformat(),
+#                     datetime.now().isoformat()
+#                 ))
                 
-                imported += 1
+#                 imported += 1
                 
-            except Exception as e:
-                errors.append(f"Row {row_num}: {str(e)}")
+#             except Exception as e:
+#                 errors.append(f"Row {row_num}: {str(e)}")
         
         conn.commit()
         conn.close()
