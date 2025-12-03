@@ -27,13 +27,19 @@ def get_db():
 def get_ingredients():
     """
     Get all ingredients with enrichment data from 4 tables
-    Returns: List of ingredients with regulatory/properties/marketing data
+    Supports search and filter parameters
     """
     try:
+        # Get search/filter parameters
+        search = request.args.get('search', '').strip()
+        category_id = request.args.get('category_id', '')
+        tag = request.args.get('tag', '')
+        
         conn = get_db()
         cursor = conn.cursor()
         
-        cursor.execute("""
+        # Build dynamic query with filters
+        query = """
             SELECT 
                 -- Main table fields (prefix with i.)
                 i.id, i.name, i.inci_name, i.cas_number,
@@ -65,8 +71,25 @@ def get_ingredients():
             LEFT JOIN ingredient_regulatory r ON i.id = r.ingredient_id
             LEFT JOIN ingredient_properties p ON i.id = p.ingredient_id
             LEFT JOIN ingredient_marketing m ON i.id = m.ingredient_id
-            ORDER BY i.name
-        """)
+            WHERE 1=1
+        """
+        
+        params = []
+        
+        # Add search filter
+        if search:
+            query += " AND (LOWER(i.name) LIKE LOWER(?) OR LOWER(i.inci_name) LIKE LOWER(?) OR LOWER(i.cas_number) LIKE LOWER(?))"
+            search_term = f"%{search}%"
+            params.extend([search_term, search_term, search_term])
+        
+        # Add category filter
+        if category_id:
+            query += " AND i.category_id = ?"
+            params.append(category_id)
+        
+        query += " ORDER BY i.name"
+        
+        cursor.execute(query, params)
         
         rows = cursor.fetchall()
         ingredients = []
@@ -128,7 +151,7 @@ def get_ingredients():
             ingredients.append(ingredient)
         
         conn.close()
-        return jsonify(ingredients), 200
+        return jsonify({'ingredients': ingredients}), 200
         
     except Exception as e:
         return jsonify({'error': str(e)}), 500
