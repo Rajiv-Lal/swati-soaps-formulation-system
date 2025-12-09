@@ -1,0 +1,10 @@
+# Logs
+*.log
+backend/*.log
+formulation_app/*.log
+
+# Vite cache
+formulation_app/node_modules/.vite/
+
+# Backup files
+*.backup
