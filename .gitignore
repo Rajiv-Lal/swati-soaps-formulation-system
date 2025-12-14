@@ -1,10 +1,26 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+formulation_app/dist/
+
+# Backups
+*.backup*
+*_backup_*/
+
+# Cache
+__pycache__/
+*.pyc
+.DS_Store
+
 # Logs
 *.log
-backend/*.log
-formulation_app/*.log
+nohup.out
 
-# Vite cache
-formulation_app/node_modules/.vite/
+# Environment
+.env
+*.sqlite3-journal
 
-# Backup files
-*.backup
+# Temp files
+*.zip
+*.tmp

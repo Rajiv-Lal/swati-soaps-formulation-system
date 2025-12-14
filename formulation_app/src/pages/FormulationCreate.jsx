@@ -1,31 +1,36 @@
+/**
+ * Formulation Create Page
+ * 
+ * Creates a new formulation using FormulationBuilder component
+ * with split-panel ingredient browser
+ */
+
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft } from 'lucide-react';
-import axios from 'axios';
-import FormulationForm from '../components/FormulationForm';
-
-const API_BASE_URL = '/api';
+import api, { getErrorMessage } from '../api/client';
+import { useToast } from '../components/common/Toast';
+import FormulationBuilder from '../components/FormulationBuilder';
 
 const FormulationCreate = () => {
   const navigate = useNavigate();
+  const { showSuccess, showError } = useToast();
 
   const handleSubmit = async (formData) => {
     try {
-      const token = localStorage.getItem('token');
-      const response = await axios.post(
-        `${API_BASE_URL}/formulations`,
-        formData,
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
+      const response = await api.post('/formulations', formData);
+      showSuccess('Formulation created successfully');
 
-      // Success - navigate to the new formulation
+      // Navigate to the new formulation
       if (response.data.formulation_id) {
         navigate(`/formulations/${response.data.formulation_id}`);
       } else {
         navigate('/formulations');
       }
     } catch (error) {
-      throw new Error(error.response?.data?.error || 'Failed to create formulation');
+      const message = getErrorMessage(error);
+      showError(message);
+      throw new Error(message);
     }
   };
 
@@ -48,13 +53,13 @@ const FormulationCreate = () => {
         <div>
           <h1 className="text-3xl font-bold text-gray-900">Create New Formulation</h1>
           <p className="text-gray-600 mt-1">
-            Design a new soap or cosmetic formulation
+            Browse ingredients by category and build your formula
           </p>
         </div>
       </div>
 
-      {/* Form */}
-      <FormulationForm
+      {/* Builder */}
+      <FormulationBuilder
         onSubmit={handleSubmit}
         onCancel={handleCancel}
         isEdit={false}

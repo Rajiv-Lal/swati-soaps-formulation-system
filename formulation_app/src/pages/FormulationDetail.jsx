@@ -1,114 +1,224 @@
-import React, { useState, useEffect } from 'react';
+/**
+ * Formulation Detail Page
+ * 
+ * Shows detailed formulation information with tabs:
+ * - Details: Ingredients and properties
+ * - Version History: Timeline and restore
+ * - BOM: Bill of materials generator
+ * - Test Results: Quality testing data
+ */
+
+import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { 
-  ArrowLeft, Edit2, Trash2, Copy, RefreshCw, AlertCircle,
+  ArrowLeft, Edit2, Trash2, Copy, AlertCircle,
   FileText, Clock, TestTube, Package
 } from 'lucide-react';
-import axios from 'axios';
+import api, { getErrorMessage } from '../api/client';
+import { useToast } from '../components/common/Toast';
+import { PageLoading } from '../components/common/LoadingSpinner';
 import BOMGenerator from '../components/BOMGenerator';
 import VersionTimeline from '../components/VersionTimeline';
-
-const API_BASE_URL = '/api';
 
 const FormulationDetail = () => {
   const { id } = useParams();
   const navigate = useNavigate();
+  const { showSuccess, showError } = useToast();
   
+  // State
   const [formulation, setFormulation] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [activeTab, setActiveTab] = useState('details');
 
-  useEffect(() => {
-    loadFormulation();
-  }, [id]);
+  // ---------------------------------------------------------------------------
+  // DATA LOADING
+  // ---------------------------------------------------------------------------
 
-  const loadFormulation = async () => {
+  const loadFormulation = useCallback(async () => {
     setLoading(true);
     setError(null);
 
     try {
-      const token = localStorage.getItem('token');
-      const response = await axios.get(
-        `${API_BASE_URL}/formulations/${id}`,
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-
+      const response = await api.get(`/formulations/${id}`);
       setFormulation(response.data.formulation);
     } catch (err) {
       console.error('Error loading formulation:', err);
-      setError('Failed to load formulation details');
+      const message = getErrorMessage(err);
+      setError(message);
     } finally {
       setLoading(false);
     }
-  };
+  }, [id]);
+
+  useEffect(() => {
+    loadFormulation();
+  }, [loadFormulation]);
+
+  // ---------------------------------------------------------------------------
+  // ACTIONS
+  // ---------------------------------------------------------------------------
 
   const handleDelete = async () => {
-    if (!window.confirm(`Delete "${formulation.product_name}"?\n\nThis action cannot be undone.`)) {
+    if (!window.confirm(`Delete "${formulation.product_name}"?\n\nThis will also delete all versions and test results. This action cannot be undone.`)) {
       return;
     }
 
     try {
-      const token = localStorage.getItem('token');
-      await axios.delete(`${API_BASE_URL}/formulations/${id}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-
+      await api.delete(`/formulations/${id}`);
+      showSuccess('Formulation deleted successfully');
       navigate('/formulations');
     } catch (err) {
       console.error('Error deleting formulation:', err);
-      alert(err.response?.data?.error || 'Failed to delete formulation');
+      showError(getErrorMessage(err));
     }
   };
 
   const handleDuplicate = async () => {
-    const newName = prompt('Enter name for the duplicate:', `${formulation.product_name} (Copy)`);
-    
-    if (!newName) return;
-
     try {
-      const token = localStorage.getItem('token');
-      const response = await axios.post(
-        `${API_BASE_URL}/formulations/${id}/duplicate`,
-        { new_name: newName },
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-
+      const response = await api.post(`/formulations/${id}/duplicate`);
+      showSuccess('Formulation duplicated successfully');
       navigate(`/formulations/${response.data.formulation_id}`);
     } catch (err) {
       console.error('Error duplicating formulation:', err);
-      alert(err.response?.data?.error || 'Failed to duplicate formulation');
+      showError(getErrorMessage(err));
     }
   };
 
+  // ---------------------------------------------------------------------------
+  // RENDER HELPERS
+  // ---------------------------------------------------------------------------
+
   const getStatusBadge = (status) => {
-    const badges = {
-      draft: 'bg-gray-100 text-gray-800',
-      active: 'bg-green-100 text-green-800',
-      archived: 'bg-red-100 text-red-800',
-      under_review: 'bg-yellow-100 text-yellow-800'
+    const statusConfig = {
+      draft: { bg: 'bg-gray-100', text: 'text-gray-700', label: 'Draft' },
+      active: { bg: 'bg-green-100', text: 'text-green-700', label: 'Active' },
+      under_review: { bg: 'bg-yellow-100', text: 'text-yellow-700', label: 'Under Review' },
+      archived: { bg: 'bg-red-100', text: 'text-red-700', label: 'Archived' },
     };
-
-    const labels = {
-      draft: 'Draft',
-      active: 'Active',
-      archived: 'Archived',
-      under_review: 'Under Review'
-    };
-
+    const config = statusConfig[status] || statusConfig.draft;
     return (
-      <span className={`px-3 py-1 text-sm font-medium rounded-full ${badges[status] || 'bg-gray-100 text-gray-800'}`}>
-        {labels[status] || status}
+      <span className={`px-3 py-1 rounded-full text-sm font-medium ${config.bg} ${config.text}`}>
+        {config.label}
       </span>
     );
   };
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <RefreshCw className="w-8 h-8 text-blue-600 animate-spin" />
+  const renderDetailsTab = () => (
+    <div className="space-y-6">
+      {/* Summary Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="bg-white rounded-lg border p-4">
+          <div className="text-sm text-gray-500 mb-1">Total Cost per Piece</div>
+          <div className="text-2xl font-bold text-gray-900">
+            {formulation.total_cost_per_piece 
+              ? `₹${parseFloat(formulation.total_cost_per_piece).toFixed(2)}`
+              : '-'
+            }
+          </div>
+        </div>
+        <div className="bg-white rounded-lg border p-4">
+          <div className="text-sm text-gray-500 mb-1">Ingredients</div>
+          <div className="text-2xl font-bold text-gray-900">
+            {formulation.ingredients?.length || 0}
+          </div>
+        </div>
+        <div className="bg-white rounded-lg border p-4">
+          <div className="text-sm text-gray-500 mb-1">Total Percentage</div>
+          <div className="text-2xl font-bold text-gray-900">
+            {formulation.ingredients?.reduce((sum, ing) => sum + (parseFloat(ing.percentage) || 0), 0).toFixed(1)}%
+          </div>
+        </div>
       </div>
-    );
+
+      {/* Ingredients Table */}
+      <div className="bg-white rounded-lg border">
+        <div className="px-4 py-3 border-b">
+          <h3 className="font-medium text-gray-900">Ingredients</h3>
+        </div>
+        {formulation.ingredients && formulation.ingredients.length > 0 ? (
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Ingredient</th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Percentage</th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Cost/kg</th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Cost in Formula</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-200">
+                {formulation.ingredients.map((ing, index) => (
+                  <tr key={index} className="hover:bg-gray-50">
+                    <td className="px-4 py-3">
+                      <div className="font-medium text-gray-900">{ing.ingredient_name}</div>
+                      {ing.category_name && (
+                        <div className="text-sm text-gray-500">{ing.category_name}</div>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-right text-gray-900">
+                      {parseFloat(ing.percentage).toFixed(2)}%
+                    </td>
+                    <td className="px-4 py-3 text-right text-gray-600">
+                      {ing.landed_cost_net_gst ? `₹${parseFloat(ing.landed_cost_net_gst).toFixed(2)}` : '-'}
+                    </td>
+                    <td className="px-4 py-3 text-right text-gray-900 font-medium">
+                      {ing.cost_per_piece ? `₹${parseFloat(ing.cost_per_piece).toFixed(4)}` : '-'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="p-8 text-center text-gray-500">
+            No ingredients added yet
+          </div>
+        )}
+      </div>
+
+      {/* Notes */}
+      {formulation.notes && (
+        <div className="bg-white rounded-lg border p-4">
+          <h3 className="font-medium text-gray-900 mb-2">Notes</h3>
+          <p className="text-gray-600 whitespace-pre-wrap">{formulation.notes}</p>
+        </div>
+      )}
+    </div>
+  );
+
+  const renderVersionsTab = () => (
+    <VersionTimeline 
+      formulation={formulation} 
+      onVersionSelect={(version) => {
+        // Could implement version preview here
+        console.log('Selected version:', version);
+      }}
+      onRestore={() => {
+        loadFormulation();
+        showSuccess('Version restored successfully');
+      }}
+    />
+  );
+
+  const renderBOMTab = () => (
+    <BOMGenerator formulation={formulation} />
+  );
+
+  const renderTestsTab = () => (
+    <div className="bg-white rounded-lg border p-8 text-center text-gray-500">
+      <TestTube className="w-12 h-12 mx-auto mb-4 text-gray-300" />
+      <h3 className="font-medium text-gray-900 mb-2">Test Results</h3>
+      <p>Test results functionality coming soon</p>
+    </div>
+  );
+
+  // ---------------------------------------------------------------------------
+  // MAIN RENDER
+  // ---------------------------------------------------------------------------
+
+  if (loading) {
+    return <PageLoading message="Loading formulation..." />;
   }
 
   if (error || !formulation) {
@@ -158,15 +268,38 @@ const FormulationDetail = () => {
               {getStatusBadge(formulation.status)}
             </div>
             <div className="flex items-center gap-4 text-sm text-gray-600">
-              <span>Version: {formulation.current_version}</span>
+              <span>Version: {formulation.current_version || 'v1.0'}</span>
               <span>•</span>
-              <span>{formulation.product_type_name}</span>
+              <span>{formulation.product_type_name || 'Unknown Type'}</span>
               <span>•</span>
-              <span>{formulation.grammage}g per piece</span>
+              <span>{formulation.grammage || 0}g per piece</span>
               {formulation.pack_count > 1 && (
                 <>
                   <span>•</span>
                   <span>{formulation.pack_count}-pack</span>
+                </>
+              )}
+            </div>
+            <div className="flex items-center gap-4 text-sm text-gray-500 mt-1">
+              {formulation.created_at && (
+                <span>
+                  Created: {new Date(formulation.created_at).toLocaleDateString('en-IN', {
+                    day: '2-digit',
+                    month: 'short',
+                    year: 'numeric'
+                  })}
+                </span>
+              )}
+              {formulation.updated_at && formulation.updated_at !== formulation.created_at && (
+                <>
+                  <span>•</span>
+                  <span>
+                    Updated: {new Date(formulation.updated_at).toLocaleDateString('en-IN', {
+                      day: '2-digit',
+                      month: 'short',
+                      year: 'numeric'
+                    })}
+                  </span>
                 </>
               )}
             </div>
@@ -218,7 +351,7 @@ const FormulationDetail = () => {
                   }
                 `}
               >
-                <Icon className="w-5 h-5" />
+                <Icon className="w-4 h-4" />
                 {tab.name}
               </button>
             );
@@ -227,183 +360,11 @@ const FormulationDetail = () => {
       </div>
 
       {/* Tab Content */}
-      <div className="space-y-6">
-        {/* Details Tab */}
-        {activeTab === 'details' && (
-          <>
-            {/* Cost Summary */}
-            <div className="bg-white rounded-lg shadow-sm border p-6">
-              <h2 className="text-lg font-semibold text-gray-900 mb-4">Cost Summary</h2>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <div>
-                  <div className="text-sm text-gray-600 mb-1">Cost per Piece</div>
-                  <div className="text-2xl font-bold text-blue-600">
-                    ₹{formulation.total_cost_per_piece?.toFixed(4) || '0.0000'}
-                  </div>
-                </div>
-                {formulation.pack_count > 1 && (
-                  <div>
-                    <div className="text-sm text-gray-600 mb-1">
-                      Cost per {formulation.pack_count}-Pack
-                    </div>
-                    <div className="text-2xl font-bold text-blue-600">
-                      ₹{(formulation.total_cost_per_piece * formulation.pack_count).toFixed(2)}
-                    </div>
-                  </div>
-                )}
-                <div>
-                  <div className="text-sm text-gray-600 mb-1">Cost per Kg</div>
-                  <div className="text-2xl font-bold text-blue-600">
-                    ₹{((formulation.total_cost_per_piece * 1000) / formulation.grammage).toFixed(2)}
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Ingredients */}
-            <div className="bg-white rounded-lg shadow-sm border overflow-hidden">
-              <div className="px-6 py-4 border-b">
-                <h2 className="text-lg font-semibold text-gray-900">Ingredients</h2>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-200">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                        Ingredient
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                        Category
-                      </th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">
-                        Percentage
-                      </th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">
-                        Quantity (g)
-                      </th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">
-                        Cost/Piece
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
-                    {formulation.ingredients?.map((ing, index) => (
-                      <tr key={index} className="hover:bg-gray-50">
-                        <td className="px-6 py-4 text-sm font-medium text-gray-900">
-                          {ing.ingredient_name}
-                        </td>
-                        <td className="px-6 py-4 text-sm text-gray-600">
-                          {ing.category_name}
-                        </td>
-                        <td className="px-6 py-4 text-sm text-right text-gray-900">
-                          {parseFloat(ing.percentage).toFixed(2)}%
-                        </td>
-                        <td className="px-6 py-4 text-sm text-right text-gray-900">
-                          {parseFloat(ing.quantity_grams).toFixed(2)}g
-                        </td>
-                        <td className="px-6 py-4 text-sm text-right font-medium text-gray-900">
-                          ₹{parseFloat(ing.cost_per_piece).toFixed(4)}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                  <tfoot className="bg-gray-50 border-t-2 border-gray-300">
-                    <tr>
-                      <td colSpan="2" className="px-6 py-3 text-sm font-bold text-gray-900 uppercase">
-                        TOTAL
-                      </td>
-                      <td className="px-6 py-3 text-sm text-right font-bold text-gray-900">
-                        100.00%
-                      </td>
-                      <td className="px-6 py-3 text-sm text-right font-bold text-gray-900">
-                        {formulation.grammage}g
-                      </td>
-                      <td className="px-6 py-3 text-sm text-right font-bold text-blue-600">
-                        ₹{formulation.total_cost_per_piece?.toFixed(4) || '0.0000'}
-                      </td>
-                    </tr>
-                  </tfoot>
-                </table>
-              </div>
-            </div>
-
-            {/* Benefits & Tags */}
-            {(formulation.benefits?.length > 0 || formulation.tags?.length > 0) && (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {/* Benefits */}
-                {formulation.benefits?.length > 0 && (
-                  <div className="bg-white rounded-lg shadow-sm border p-6">
-                    <h3 className="text-lg font-semibold text-gray-900 mb-3">Benefits</h3>
-                    <div className="flex flex-wrap gap-2">
-                      {formulation.benefits.map((benefit) => (
-                        <span
-                          key={benefit.id}
-                          className="px-3 py-1 bg-green-100 text-green-800 text-sm rounded-full"
-                        >
-                          {benefit.name}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* Tags */}
-                {formulation.tags?.length > 0 && (
-                  <div className="bg-white rounded-lg shadow-sm border p-6">
-                    <h3 className="text-lg font-semibold text-gray-900 mb-3">Tags</h3>
-                    <div className="flex flex-wrap gap-2">
-                      {formulation.tags.map((tag) => (
-                        <span
-                          key={tag.id}
-                          className="px-3 py-1 text-sm rounded-full"
-                          style={{ backgroundColor: tag.color + '20', color: tag.color }}
-                        >
-                          {tag.name}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Notes */}
-            {formulation.notes && (
-              <div className="bg-white rounded-lg shadow-sm border p-6">
-                <h3 className="text-lg font-semibold text-gray-900 mb-3">Notes</h3>
-                <p className="text-gray-700 whitespace-pre-wrap">{formulation.notes}</p>
-              </div>
-            )}
-          </>
-        )}
-
-        {/* Version History Tab */}
-        {activeTab === 'versions' && (
-          <div className="bg-white rounded-lg shadow-sm border p-6">
-            <VersionTimeline 
-              formulation={formulation}
-              onVersionSelect={() => loadFormulation()}
-            />
-          </div>
-        )}
-
-        {/* BOM Tab */}
-        {activeTab === 'bom' && (
-          <BOMGenerator formulation={formulation} />
-        )}
-
-        {/* Tests Tab */}
-        {activeTab === 'tests' && (
-          <div className="bg-white rounded-lg shadow-sm border p-12 text-center">
-            <TestTube className="w-16 h-16 mx-auto text-gray-400 mb-4" />
-            <h3 className="text-lg font-medium text-gray-900 mb-2">
-              Test Results Coming Soon
-            </h3>
-            <p className="text-gray-600">
-              Test results functionality will be available in the next update
-            </p>
-          </div>
-        )}
+      <div>
+        {activeTab === 'details' && renderDetailsTab()}
+        {activeTab === 'versions' && renderVersionsTab()}
+        {activeTab === 'bom' && renderBOMTab()}
+        {activeTab === 'tests' && renderTestsTab()}
       </div>
     </div>
   );

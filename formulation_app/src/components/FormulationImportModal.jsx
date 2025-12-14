@@ -1,281 +1,205 @@
-import React, { useState } from 'react';
-import { X, Upload, Download, FileText, CheckCircle, AlertCircle, Loader, AlertTriangle } from 'lucide-react';
-import axios from 'axios';
+/**
+ * Formulation Import Modal
+ * 
+ * Modal for importing formulations from Excel files
+ */
 
-const API_BASE_URL = '/api';
+import React, { useState, useRef } from 'react';
+import { X, Upload, FileSpreadsheet, AlertCircle, CheckCircle, Loader2 } from 'lucide-react';
+import api, { getErrorMessage } from '../api/client';
 
 const FormulationImportModal = ({ isOpen, onClose, onSuccess }) => {
   const [file, setFile] = useState(null);
-  const [importing, setImporting] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
   const [result, setResult] = useState(null);
+  const fileInputRef = useRef(null);
 
-  if (!isOpen) return null;
-
-  const handleFileSelect = (e) => {
+  const handleFileChange = (e) => {
     const selectedFile = e.target.files[0];
-    if (!selectedFile) return;
+    if (selectedFile) {
+      const validTypes = [
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'application/vnd.ms-excel',
+        'text/csv'
+      ];
+      
+      if (!validTypes.includes(selectedFile.type) && 
+          !selectedFile.name.endsWith('.xlsx') && 
+          !selectedFile.name.endsWith('.xls') &&
+          !selectedFile.name.endsWith('.csv')) {
+        setError('Please select an Excel (.xlsx, .xls) or CSV file');
+        setFile(null);
+        return;
+      }
 
-    if (!(selectedFile.name.endsWith('.xlsx') || selectedFile.name.endsWith('.xls'))) {
-      alert('Please select an Excel file (.xlsx or .xls)');
-      return;
-    }
-
-    setFile(selectedFile);
-    setResult(null);
-  };
-
-  const handleDownloadTemplate = async () => {
-    try {
-      const token = localStorage.getItem('token');
-      const response = await axios.get(`${API_BASE_URL}/formulations/template`, {
-        headers: { Authorization: `Bearer ${token}` },
-        responseType: 'blob'
-      });
-
-      const url = window.URL.createObjectURL(new Blob([response.data]));
-      const link = document.createElement('a');
-      link.href = url;
-      link.setAttribute('download', 'formulations_template.csv');
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-    } catch (error) {
-      console.error('Error downloading template:', error);
-      alert('Failed to download template');
+      setFile(selectedFile);
+      setError(null);
+      setResult(null);
     }
   };
 
-  const handleImport = async () => {
+  const handleDrop = (e) => {
+    e.preventDefault();
+    const droppedFile = e.dataTransfer.files[0];
+    if (droppedFile) {
+      handleFileChange({ target: { files: [droppedFile] } });
+    }
+  };
+
+  const handleDragOver = (e) => {
+    e.preventDefault();
+  };
+
+  const handleUpload = async () => {
     if (!file) {
-      alert('Please select a file first');
+      setError('Please select a file first');
       return;
     }
 
-    setImporting(true);
+    setLoading(true);
+    setError(null);
     setResult(null);
 
     try {
-      const token = localStorage.getItem('token');
       const formData = new FormData();
       formData.append('file', file);
 
-      const response = await axios.post(
-        `${API_BASE_URL}/formulations/import-excel`,
-        formData,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            'Content-Type': 'multipart/form-data'
-          }
+      const response = await api.post('/formulations/import', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data'
         }
-      );
-
-      setResult({
-        success: true,
-        ...response.data
       });
 
-      if (response.data.formulations_created > 0 && onSuccess) {
+      setResult(response.data);
+      
+      if (response.data.imported > 0) {
         setTimeout(() => {
-          onSuccess();
-          handleClose();
-        }, 3000);
+          onSuccess(response.data);
+        }, 2000);
       }
-    } catch (error) {
-      console.error('Import error:', error);
-      setResult({
-        success: false,
-        error: error.response?.data?.error || 'Import failed'
-      });
+    } catch (err) {
+      console.error('Import error:', err);
+      setError(getErrorMessage(err));
     } finally {
-      setImporting(false);
+      setLoading(false);
     }
   };
 
   const handleClose = () => {
     setFile(null);
+    setError(null);
     setResult(null);
     onClose();
   };
 
+  if (!isOpen) return null;
+
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg shadow-xl max-w-3xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-lg shadow-xl max-w-lg w-full">
         {/* Header */}
-        <div className="flex items-center justify-between p-6 border-b">
-          <div className="flex items-center gap-3">
-            <FileText className="w-6 h-6 text-blue-600" />
-            <h2 className="text-xl font-semibold text-gray-900">Import Formulations from Excel</h2>
-          </div>
-          <button onClick={handleClose} className="text-gray-400 hover:text-gray-600">
-            <X className="w-6 h-6" />
+        <div className="flex items-center justify-between px-6 py-4 border-b">
+          <h2 className="text-xl font-semibold text-gray-900">Import Formulations</h2>
+          <button onClick={handleClose} className="p-2 text-gray-400 hover:text-gray-600 rounded-md">
+            <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* Content */}
-        <div className="p-6 space-y-6">
-          {/* Info */}
-          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-            <div className="flex items-start gap-3">
-              <AlertCircle className="w-5 h-5 text-blue-600 mt-0.5 flex-shrink-0" />
-              <div className="text-sm text-blue-800">
-                <p className="font-medium mb-2">Smart Excel Import</p>
-                <p className="mb-2">Upload your multi-sheet Excel file. The system will:</p>
-                <ul className="list-disc list-inside space-y-1">
-                  <li>Process each sheet as a separate formulation</li>
-                  <li>Auto-match ingredient names to your database</li>
-                  <li>Extract grammage, pack count, and percentages</li>
-                  <li>Support unlimited ingredients per formulation</li>
-                </ul>
-              </div>
+        <div className="p-6">
+          {error && (
+            <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-md flex items-start gap-3">
+              <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0" />
+              <p className="text-sm text-red-800">{error}</p>
             </div>
-          </div>
+          )}
 
-          {/* Step 1: Download Template */}
-          <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
-            <div className="flex items-start gap-3">
-              <Download className="w-5 h-5 text-gray-600 mt-0.5" />
-              <div className="flex-1">
-                <h3 className="font-medium text-gray-900 mb-1">Optional: Download CSV Template</h3>
-                <p className="text-sm text-gray-600 mb-3">
-                  For simple formulations, you can use the CSV template (supports 3 ingredients max)
-                </p>
-                <button
-                  onClick={handleDownloadTemplate}
-                  className="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 text-sm font-medium"
-                >
-                  Download CSV Template
-                </button>
-              </div>
-            </div>
-          </div>
-
-          {/* Step 2: Upload File */}
-          <div className="border-2 border-dashed border-blue-300 rounded-lg p-6 bg-blue-50">
-            <div className="flex items-start gap-3">
-              <Upload className="w-5 h-5 text-blue-600 mt-0.5" />
-              <div className="flex-1">
-                <h3 className="font-medium text-gray-900 mb-1">Upload Excel File</h3>
-                <p className="text-sm text-gray-600 mb-3">
-                  Select your Excel file (.xlsx or .xls) with multiple formulation sheets
-                </p>
-                <input
-                  type="file"
-                  accept=".xlsx,.xls"
-                  onChange={handleFileSelect}
-                  className="block w-full text-sm text-gray-500
-                    file:mr-4 file:py-2 file:px-4
-                    file:rounded-md file:border-0
-                    file:text-sm file:font-medium
-                    file:bg-blue-600 file:text-white
-                    hover:file:bg-blue-700"
-                />
-                {file && (
-                  <div className="mt-2 text-sm text-gray-600">
-                    Selected: <span className="font-medium">{file.name}</span>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-
-          {/* Result Display */}
           {result && (
-            <div className={`rounded-lg p-4 ${
-              result.success 
-                ? 'bg-green-50 border border-green-200' 
-                : 'bg-red-50 border border-red-200'
-            }`}>
+            <div className="mb-4 p-4 bg-green-50 border border-green-200 rounded-md">
               <div className="flex items-start gap-3">
-                {result.success ? (
-                  <CheckCircle className="w-5 h-5 text-green-600 mt-0.5 flex-shrink-0" />
-                ) : (
-                  <AlertCircle className="w-5 h-5 text-red-600 mt-0.5 flex-shrink-0" />
-                )}
-                <div className="flex-1">
-                  <h4 className={`font-medium mb-2 ${
-                    result.success ? 'text-green-900' : 'text-red-900'
-                  }`}>
-                    {result.success ? 'Import Completed!' : 'Import Failed'}
-                  </h4>
-                  
-                  {result.success && (
-                    <div className="text-sm space-y-2">
-                      <div className="text-green-800">
-                        <p className="font-medium">✓ {result.formulations_created} formulations created</p>
-                        <p>✓ {result.sheets_processed} sheets processed</p>
-                        <p>✓ {result.ingredients_matched} ingredients matched</p>
-                      </div>
-
-                      {result.ingredients_not_found && result.ingredients_not_found.length > 0 && (
-                        <div className="mt-3 p-3 bg-yellow-50 border border-yellow-200 rounded">
-                          <div className="flex items-start gap-2">
-                            <AlertTriangle className="w-4 h-4 text-yellow-600 mt-0.5 flex-shrink-0" />
-                            <div>
-                              <p className="text-xs font-medium text-yellow-900 mb-1">
-                                {result.ingredients_not_found.length} ingredients not found in database:
-                              </p>
-                              <div className="max-h-32 overflow-y-auto">
-                                <ul className="text-xs text-yellow-800 space-y-1">
-                                  {result.ingredients_not_found.map((item, idx) => (
-                                    <li key={idx}>• {item.sheet}: <span className="font-medium">{item.ingredient}</span></li>
-                                  ))}
-                                </ul>
-                              </div>
-                              <p className="text-xs text-yellow-700 mt-2">Add these ingredients first, then re-import those formulations.</p>
-                            </div>
-                          </div>
-                        </div>
-                      )}
-
-                      {result.errors && result.errors.length > 0 && (
-                        <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded">
-                          <p className="text-xs font-medium text-red-900 mb-1">Errors:</p>
-                          <ul className="text-xs text-red-800 space-y-1 max-h-32 overflow-y-auto">
-                            {result.errors.map((error, idx) => (
-                              <li key={idx}>• {error}</li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {!result.success && (
-                    <p className="text-sm text-red-800">{result.error}</p>
-                  )}
+                <CheckCircle className="w-5 h-5 text-green-600 flex-shrink-0" />
+                <div>
+                  <p className="text-sm font-medium text-green-800">Import Complete</p>
+                  <p className="text-sm text-green-700 mt-1">
+                    Successfully imported {result.imported} formulation{result.imported !== 1 ? 's' : ''}
+                    {result.skipped > 0 && `, skipped ${result.skipped}`}
+                  </p>
                 </div>
               </div>
             </div>
           )}
+
+          {/* Drop Zone */}
+          <div
+            onDrop={handleDrop}
+            onDragOver={handleDragOver}
+            onClick={() => fileInputRef.current?.click()}
+            className={`
+              border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors
+              ${file ? 'border-blue-300 bg-blue-50' : 'border-gray-300 hover:border-gray-400 hover:bg-gray-50'}
+            `}
+          >
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".xlsx,.xls,.csv"
+              onChange={handleFileChange}
+              className="hidden"
+            />
+
+            {file ? (
+              <div className="flex flex-col items-center">
+                <FileSpreadsheet className="w-12 h-12 text-blue-600 mb-3" />
+                <p className="font-medium text-gray-900">{file.name}</p>
+                <p className="text-sm text-gray-500 mt-1">{(file.size / 1024).toFixed(1)} KB</p>
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); setFile(null); }}
+                  className="mt-2 text-sm text-blue-600 hover:text-blue-700"
+                >
+                  Choose different file
+                </button>
+              </div>
+            ) : (
+              <div className="flex flex-col items-center">
+                <Upload className="w-12 h-12 text-gray-400 mb-3" />
+                <p className="font-medium text-gray-900">Drop your file here</p>
+                <p className="text-sm text-gray-500 mt-1">or click to browse</p>
+                <p className="text-xs text-gray-400 mt-2">Supports .xlsx, .xls, .csv</p>
+              </div>
+            )}
+          </div>
+
+          {/* Instructions */}
+          <div className="mt-4 p-4 bg-gray-50 rounded-md">
+            <h4 className="text-sm font-medium text-gray-900 mb-2">Expected Format</h4>
+            <p className="text-xs text-gray-600">
+              product_name*, grammage, product_type, status, ingredients (JSON or separate sheet)
+            </p>
+            <p className="text-xs text-gray-500 mt-1">* Required fields</p>
+          </div>
         </div>
 
         {/* Footer */}
-        <div className="flex justify-end gap-3 p-6 border-t bg-gray-50">
+        <div className="flex items-center justify-end gap-3 px-6 py-4 border-t bg-gray-50">
           <button
             onClick={handleClose}
-            className="px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50"
-            disabled={importing}
+            disabled={loading}
+            className="px-4 py-2 text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
           >
-            {result && result.success ? 'Close' : 'Cancel'}
+            {result ? 'Close' : 'Cancel'}
           </button>
-          <button
-            onClick={handleImport}
-            disabled={!file || importing}
-            className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center gap-2"
-          >
-            {importing ? (
-              <>
-                <Loader className="w-4 h-4 animate-spin" />
-                Processing...
-              </>
-            ) : (
-              <>
-                <Upload className="w-4 h-4" />
-                Import Formulations
-              </>
-            )}
-          </button>
+          {!result && (
+            <button
+              onClick={handleUpload}
+              disabled={!file || loading}
+              className="px-4 py-2 text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2"
+            >
+              {loading && <Loader2 className="w-4 h-4 animate-spin" />}
+              {loading ? 'Importing...' : 'Import'}
+            </button>
+          )}
         </div>
       </div>
     </div>

@@ -13,9 +13,10 @@ import sqlite3
 ingredients_bp = Blueprint('ingredients_api', __name__)
 
 def get_db():
-    """Get database connection using app config"""
-    conn = sqlite3.connect(current_app.config['DATABASE'])
+    """Get database connection with production-safe settings"""
+    conn = sqlite3.connect(current_app.config['DATABASE'], timeout=30)
     conn.row_factory = sqlite3.Row  # Access columns by name
+    conn.execute('PRAGMA busy_timeout = 30000')  # 30 second wait on locks
     return conn
 
 # ============================================================================
