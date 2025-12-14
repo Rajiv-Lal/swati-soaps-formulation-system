@@ -2,21 +2,20 @@
  * Version Timeline Component
  * 
  * Displays version history for formulations with:
- * - Timeline view
- * - Version comparison
- * - Restore functionality
+ * - All versions expanded by default with full ingredient details
+ * - Timeline view showing changes over time
+ * - No restore button (all versions are viewable)
  */
 
 import React, { useState, useEffect } from 'react';
-import { Clock, RotateCcw, ChevronDown, ChevronRight, AlertCircle, Loader2 } from 'lucide-react';
+import { Clock, ChevronDown, ChevronRight, AlertCircle, Loader2, Package, DollarSign } from 'lucide-react';
 import api, { getErrorMessage } from '../api/client';
 
-const VersionTimeline = ({ formulation, onVersionSelect, onRestore }) => {
+const VersionTimeline = ({ formulation, onVersionSelect }) => {
   const [versions, setVersions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [expandedVersion, setExpandedVersion] = useState(null);
-  const [restoring, setRestoring] = useState(false);
+  const [expandedVersions, setExpandedVersions] = useState(new Set()); // Track multiple expanded
 
   useEffect(() => {
     if (formulation?.id) {
@@ -30,31 +29,17 @@ const VersionTimeline = ({ formulation, onVersionSelect, onRestore }) => {
 
     try {
       const response = await api.get(`/formulations/${formulation.id}/versions`);
-      setVersions(response.data.versions || []);
+      const versionsData = response.data.versions || [];
+      setVersions(versionsData);
+      
+      // Expand all versions by default
+      const allIds = new Set(versionsData.map(v => v.id));
+      setExpandedVersions(allIds);
     } catch (err) {
       console.error('Error loading versions:', err);
       setError(getErrorMessage(err));
     } finally {
       setLoading(false);
-    }
-  };
-
-  const handleRestore = async (versionId) => {
-    if (!window.confirm('Restore this version? This will create a new version with the restored content.')) {
-      return;
-    }
-
-    setRestoring(true);
-
-    try {
-      await api.post(`/formulations/${formulation.id}/versions/${versionId}/restore`);
-      await loadVersions();
-      if (onRestore) onRestore();
-    } catch (err) {
-      console.error('Error restoring version:', err);
-      alert(getErrorMessage(err));
-    } finally {
-      setRestoring(false);
     }
   };
 
@@ -70,11 +55,54 @@ const VersionTimeline = ({ formulation, onVersionSelect, onRestore }) => {
   };
 
   const toggleExpand = (versionId) => {
-    setExpandedVersion(expandedVersion === versionId ? null : versionId);
-    if (onVersionSelect && expandedVersion !== versionId) {
+    setExpandedVersions(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(versionId)) {
+        newSet.delete(versionId);
+      } else {
+        newSet.add(versionId);
+      }
+      return newSet;
+    });
+    
+    if (onVersionSelect) {
       const version = versions.find(v => v.id === versionId);
       onVersionSelect(version);
     }
+  };
+
+  // Parse ingredients from snapshot and include names
+  const getIngredients = (version) => {
+    if (!version.ingredients_snapshot) return [];
+    
+    const snapshot = typeof version.ingredients_snapshot === 'string' 
+      ? JSON.parse(version.ingredients_snapshot) 
+      : version.ingredients_snapshot;
+    
+    // If ingredients have names (from enriched API), use them
+    // Otherwise fall back to ingredient_id display
+    const ingredients = snapshot.ingredients || [];
+    
+    return ingredients.map(ing => ({
+      id: ing.ingredient_id,
+      name: ing.name || ing.ingredient_name || `Ingredient #${ing.ingredient_id}`,
+      percentage: ing.percentage,
+      quantity_grams: ing.quantity_grams,
+      cost_per_piece: ing.cost_per_piece
+    }));
+  };
+
+  const getSnapshotData = (version) => {
+    if (!version.ingredients_snapshot) return { grammage: 0, pack_count: 1 };
+    
+    const snapshot = typeof version.ingredients_snapshot === 'string' 
+      ? JSON.parse(version.ingredients_snapshot) 
+      : version.ingredients_snapshot;
+    
+    return {
+      grammage: snapshot.grammage || 0,
+      pack_count: snapshot.pack_count || 1
+    };
   };
 
   if (loading) {
@@ -121,8 +149,10 @@ const VersionTimeline = ({ formulation, onVersionSelect, onRestore }) => {
 
       <div className="divide-y divide-gray-100">
         {versions.map((version, index) => {
-          const isExpanded = expandedVersion === version.id;
+          const isExpanded = expandedVersions.has(version.id);
           const isCurrent = index === 0;
+          const ingredients = getIngredients(version);
+          const snapshotData = getSnapshotData(version);
 
           return (
             <div key={version.id} className="relative">
@@ -164,29 +194,28 @@ const VersionTimeline = ({ formulation, onVersionSelect, onRestore }) => {
                       </div>
                       <div className="text-sm text-gray-500">
                         {formatDate(version.created_at)}
-                        {version.created_by && ` by ${version.created_by}`}
+                        {version.created_by_name && ` by ${version.created_by_name}`}
                       </div>
                     </div>
                   </div>
 
-                  {!isCurrent && (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleRestore(version.id);
-                      }}
-                      disabled={restoring}
-                      className="px-3 py-1.5 text-sm text-blue-600 hover:bg-blue-50 rounded-md flex items-center gap-1 disabled:opacity-50"
-                    >
-                      <RotateCcw className="w-4 h-4" />
-                      Restore
-                    </button>
-                  )}
+                  {/* Summary stats on the right */}
+                  <div className="flex items-center gap-4 text-sm text-gray-500">
+                    <span className="flex items-center gap-1">
+                      <Package className="w-4 h-4" />
+                      {ingredients.length} ingredients
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <DollarSign className="w-4 h-4" />
+                      ₹{parseFloat(version.cost_snapshot || 0).toFixed(2)}
+                    </span>
+                  </div>
                 </button>
 
                 {/* Expanded details */}
                 {isExpanded && (
                   <div className="mt-4 ml-7 p-4 bg-gray-50 rounded-lg">
+                    {/* Change Notes */}
                     {version.change_notes && (
                       <div className="mb-4">
                         <div className="text-sm font-medium text-gray-700 mb-1">Change Notes</div>
@@ -194,29 +223,63 @@ const VersionTimeline = ({ formulation, onVersionSelect, onRestore }) => {
                       </div>
                     )}
 
-                    {version.ingredients && version.ingredients.length > 0 && (
+                    {/* Grammage and Pack Count */}
+                    <div className="mb-4 flex gap-6 text-sm">
+                      <div>
+                        <span className="text-gray-500">Grammage:</span>
+                        <span className="ml-2 font-medium text-gray-900">{snapshotData.grammage}g</span>
+                      </div>
+                      <div>
+                        <span className="text-gray-500">Pack Count:</span>
+                        <span className="ml-2 font-medium text-gray-900">{snapshotData.pack_count}</span>
+                      </div>
+                    </div>
+
+                    {/* Ingredients Table */}
+                    {ingredients.length > 0 && (
                       <div>
                         <div className="text-sm font-medium text-gray-700 mb-2">
-                          Ingredients ({version.ingredients.length})
+                          Ingredients ({ingredients.length})
                         </div>
-                        <div className="space-y-1">
-                          {version.ingredients.map((ing, i) => (
-                            <div key={i} className="flex items-center justify-between text-sm">
-                              <span className="text-gray-600">{ing.name}</span>
-                              <span className="text-gray-900 font-medium">{ing.percentage}%</span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {version.total_cost !== undefined && (
-                      <div className="mt-3 pt-3 border-t border-gray-200">
-                        <div className="flex justify-between text-sm">
-                          <span className="text-gray-600">Total Cost per piece</span>
-                          <span className="font-medium text-gray-900">
-                            ₹{parseFloat(version.total_cost).toFixed(2)}
-                          </span>
+                        <div className="bg-white rounded border">
+                          <table className="w-full text-sm">
+                            <thead className="bg-gray-100">
+                              <tr>
+                                <th className="text-left px-3 py-2 font-medium text-gray-600">Ingredient</th>
+                                <th className="text-right px-3 py-2 font-medium text-gray-600">%</th>
+                                <th className="text-right px-3 py-2 font-medium text-gray-600">Qty (g)</th>
+                                <th className="text-right px-3 py-2 font-medium text-gray-600">Cost</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-100">
+                              {ingredients.map((ing, i) => (
+                                <tr key={i} className="hover:bg-gray-50">
+                                  <td className="px-3 py-2 text-gray-900">{ing.name}</td>
+                                  <td className="px-3 py-2 text-right text-gray-600">{ing.percentage}%</td>
+                                  <td className="px-3 py-2 text-right text-gray-600">
+                                    {ing.quantity_grams?.toFixed(2) || '-'}
+                                  </td>
+                                  <td className="px-3 py-2 text-right text-gray-900 font-medium">
+                                    ₹{ing.cost_per_piece?.toFixed(2) || '0.00'}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                            <tfoot className="bg-gray-50 font-medium">
+                              <tr>
+                                <td className="px-3 py-2 text-gray-900">Total</td>
+                                <td className="px-3 py-2 text-right text-gray-900">
+                                  {ingredients.reduce((sum, ing) => sum + (ing.percentage || 0), 0).toFixed(1)}%
+                                </td>
+                                <td className="px-3 py-2 text-right text-gray-600">
+                                  {snapshotData.grammage}g
+                                </td>
+                                <td className="px-3 py-2 text-right text-blue-600">
+                                  ₹{parseFloat(version.cost_snapshot || 0).toFixed(2)}
+                                </td>
+                              </tr>
+                            </tfoot>
+                          </table>
                         </div>
                       </div>
                     )}

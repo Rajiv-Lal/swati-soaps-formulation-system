@@ -849,7 +849,7 @@ def delete_formulation(id):
 @app.route('/api/formulations/<int:id>/versions', methods=['GET'])
 @jwt_required()
 def get_formulation_versions(id):
-    """Get all versions of a formulation"""
+    """Get all versions of a formulation with ingredient names"""
     try:
         conn = get_db()
         cursor = conn.cursor()
@@ -864,9 +864,29 @@ def get_formulation_versions(id):
         
         versions = [dict_from_row(row) for row in cursor.fetchall()]
         
+        # Collect all ingredient IDs across all versions
+        all_ingredient_ids = set()
         for version in versions:
             if version.get('ingredients_snapshot'):
-                version['ingredients_snapshot'] = json.loads(version['ingredients_snapshot'])
+                snapshot = json.loads(version['ingredients_snapshot'])
+                for ing in snapshot.get('ingredients', []):
+                    all_ingredient_ids.add(ing['ingredient_id'])
+        
+        # Fetch all ingredient names in one query
+        ingredient_names = {}
+        if all_ingredient_ids:
+            placeholders = ','.join('?' * len(all_ingredient_ids))
+            cursor.execute(f'SELECT id, name FROM ingredients WHERE id IN ({placeholders})', 
+                          list(all_ingredient_ids))
+            ingredient_names = {row['id']: row['name'] for row in cursor.fetchall()}
+        
+        # Enrich each version with ingredient names
+        for version in versions:
+            if version.get('ingredients_snapshot'):
+                snapshot = json.loads(version['ingredients_snapshot'])
+                for ing in snapshot.get('ingredients', []):
+                    ing['name'] = ingredient_names.get(ing['ingredient_id'], f"Ingredient #{ing['ingredient_id']}")
+                version['ingredients_snapshot'] = snapshot
         
         conn.close()
         return jsonify({'versions': versions}), 200
