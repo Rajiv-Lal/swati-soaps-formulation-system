@@ -1,35 +1,47 @@
 /**
- * Formulation Detail Page
+ * Formulation Detail Page v2.3
  * 
- * Shows detailed formulation information with tabs:
- * - Details: Ingredients and properties
- * - Version History: Timeline and restore
- * - BOM: Bill of materials generator
- * - Test Results: Quality testing data
+ * FIXES:
+ * - Back button on all views
+ * - Version number displayed prominently
+ * - Tab-specific action buttons (no bleeding)
+ * - Proper version selection handling
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { 
-  ArrowLeft, Edit2, Trash2, Copy, AlertCircle,
-  FileText, Clock, TestTube, Package
+  ArrowLeft, Edit2, Trash2, Copy, AlertCircle, RefreshCw,
+  FileText, Clock, TestTube, Package, DollarSign, Loader2,
+  CheckCircle, Tag
 } from 'lucide-react';
-import api, { getErrorMessage } from '../api/client';
-import { useToast } from '../components/common/Toast';
-import { PageLoading } from '../components/common/LoadingSpinner';
 import BOMGenerator from '../components/BOMGenerator';
 import VersionTimeline from '../components/VersionTimeline';
+import TestResults from '../components/TestResults';
+
+const API_BASE = 'http://165.22.222.87:5000/api';
 
 const FormulationDetail = () => {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { showSuccess, showError } = useToast();
   
   // State
   const [formulation, setFormulation] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [activeTab, setActiveTab] = useState('details');
+  const [selectedVersion, setSelectedVersion] = useState(null); // Store full version object
+  const [refreshingPrices, setRefreshingPrices] = useState(false);
+  const [duplicating, setDuplicating] = useState(false);
+
+  const tabs = [
+    { id: 'details', name: 'Details', icon: FileText },
+    { id: 'versions', name: 'Version History', icon: Clock },
+    { id: 'bom', name: 'Bill of Materials', icon: Package },
+    { id: 'tests', name: 'Test Results', icon: TestTube }
+  ];
+
+  const getToken = () => localStorage.getItem('token');
 
   // ---------------------------------------------------------------------------
   // DATA LOADING
@@ -40,12 +52,17 @@ const FormulationDetail = () => {
     setError(null);
 
     try {
-      const response = await api.get(`/formulations/${id}`);
-      setFormulation(response.data.formulation);
+      const response = await fetch(`${API_BASE}/formulations/${id}`, {
+        headers: { 'Authorization': `Bearer ${getToken()}` }
+      });
+      
+      if (!response.ok) throw new Error('Failed to load formulation');
+      
+      const data = await response.json();
+      setFormulation(data.formulation);
     } catch (err) {
       console.error('Error loading formulation:', err);
-      const message = getErrorMessage(err);
-      setError(message);
+      setError(err.message);
     } finally {
       setLoading(false);
     }
@@ -65,122 +82,370 @@ const FormulationDetail = () => {
     }
 
     try {
-      await api.delete(`/formulations/${id}`);
-      showSuccess('Formulation deleted successfully');
+      const response = await fetch(`${API_BASE}/formulations/${id}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${getToken()}` }
+      });
+      
+      if (!response.ok) throw new Error('Failed to delete formulation');
+      
       navigate('/formulations');
     } catch (err) {
       console.error('Error deleting formulation:', err);
-      showError(getErrorMessage(err));
+      alert(err.message);
     }
   };
 
   const handleDuplicate = async () => {
+    const suggestedName = `${formulation.product_name} (Copy)`;
+    const newName = window.prompt(
+      'Enter a name for the duplicate formulation:\n\n(The duplicate will start as a new formulation at v1.0 in Draft status)',
+      suggestedName
+    );
+    
+    if (!newName || !newName.trim()) return;
+    
+    if (newName.trim() === formulation.product_name) {
+      alert('Please choose a different name for the duplicate.');
+      return;
+    }
+
+    setDuplicating(true);
+    
     try {
-      const response = await api.post(`/formulations/${id}/duplicate`);
-      showSuccess('Formulation duplicated successfully');
-      navigate(`/formulations/${response.data.formulation_id}`);
+      const response = await fetch(`${API_BASE}/formulations/${id}/duplicate`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${getToken()}`
+        },
+        body: JSON.stringify({ new_name: newName.trim() })
+      });
+      
+      if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.error || 'Failed to duplicate formulation');
+      }
+      
+      const data = await response.json();
+      navigate(`/formulations/${data.formulation_id}`);
     } catch (err) {
       console.error('Error duplicating formulation:', err);
-      showError(getErrorMessage(err));
+      alert(err.message);
+    } finally {
+      setDuplicating(false);
+    }
+  };
+
+  const handleRefreshPrices = async () => {
+    if (!window.confirm('Refresh all ingredient costs from current prices?\n\nThis will update the formulation cost calculations based on the latest ingredient prices.')) {
+      return;
+    }
+
+    setRefreshingPrices(true);
+    
+    try {
+      const response = await fetch(`${API_BASE}/formulations/${id}/refresh-prices`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${getToken()}`
+        }
+      });
+      
+      if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.error || 'Failed to refresh prices');
+      }
+      
+      const data = await response.json();
+      await loadFormulation();
+      
+      alert(`Prices refreshed!\n\nNew total cost: ₹${data.new_total_cost.toFixed(4)} per piece`);
+    } catch (err) {
+      console.error('Error refreshing prices:', err);
+      alert(err.message);
+    } finally {
+      setRefreshingPrices(false);
+    }
+  };
+
+  const handleVersionSelect = (version) => {
+    if (version) {
+      setSelectedVersion(version);
+    } else {
+      setSelectedVersion(null);
+    }
+  };
+
+  const handleClearVersionSelection = () => {
+    setSelectedVersion(null);
+  };
+
+  const handleEditFormulation = () => {
+    if (selectedVersion) {
+      navigate(`/formulations/${id}/edit?version=${selectedVersion.id}`);
+    } else {
+      navigate(`/formulations/${id}/edit`);
     }
   };
 
   // ---------------------------------------------------------------------------
-  // RENDER HELPERS
+  // HELPERS
   // ---------------------------------------------------------------------------
 
   const getStatusBadge = (status) => {
-    const statusConfig = {
-      draft: { bg: 'bg-gray-100', text: 'text-gray-700', label: 'Draft' },
-      active: { bg: 'bg-green-100', text: 'text-green-700', label: 'Active' },
-      under_review: { bg: 'bg-yellow-100', text: 'text-yellow-700', label: 'Under Review' },
-      archived: { bg: 'bg-red-100', text: 'text-red-700', label: 'Archived' },
+    const badges = {
+      draft: 'bg-gray-100 text-gray-800',
+      active: 'bg-green-100 text-green-800',
+      archived: 'bg-red-100 text-red-800',
+      under_review: 'bg-yellow-100 text-yellow-800'
     };
-    const config = statusConfig[status] || statusConfig.draft;
+
+    const labels = {
+      draft: 'Draft',
+      active: 'Active',
+      archived: 'Archived',
+      under_review: 'Under Review'
+    };
+
     return (
-      <span className={`px-3 py-1 rounded-full text-sm font-medium ${config.bg} ${config.text}`}>
-        {config.label}
+      <span className={`px-3 py-1 text-sm font-medium rounded-full ${badges[status] || 'bg-gray-100 text-gray-800'}`}>
+        {labels[status] || status}
       </span>
     );
   };
 
+  const formatCurrency = (value) => {
+    if (value === null || value === undefined) return '₹0.00';
+    return '₹' + parseFloat(value).toLocaleString('en-IN', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 4
+    });
+  };
+
+  // ---------------------------------------------------------------------------
+  // RENDER TAB-SPECIFIC ACTIONS
+  // ---------------------------------------------------------------------------
+
+  const renderTabActions = () => {
+    switch (activeTab) {
+      case 'details':
+        return (
+          <div className="flex gap-2 flex-wrap">
+            <button
+              onClick={handleRefreshPrices}
+              disabled={refreshingPrices}
+              className="px-4 py-2 text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 flex items-center gap-2"
+              title="Refresh costs from current ingredient prices"
+            >
+              <RefreshCw className={`w-4 h-4 ${refreshingPrices ? 'animate-spin' : ''}`} />
+              {refreshingPrices ? 'Refreshing...' : 'Refresh Prices'}
+            </button>
+            
+            <button
+              onClick={handleDuplicate}
+              disabled={duplicating}
+              className="px-4 py-2 text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 flex items-center gap-2"
+            >
+              {duplicating ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Copy className="w-4 h-4" />
+              )}
+              {duplicating ? 'Duplicating...' : 'Duplicate'}
+            </button>
+            
+            <button
+              onClick={handleEditFormulation}
+              className="px-4 py-2 text-white bg-blue-600 rounded-md hover:bg-blue-700 flex items-center gap-2"
+            >
+              <Edit2 className="w-4 h-4" />
+              Edit
+            </button>
+            
+            <button
+              onClick={handleDelete}
+              className="px-4 py-2 text-white bg-red-600 rounded-md hover:bg-red-700 flex items-center gap-2"
+            >
+              <Trash2 className="w-4 h-4" />
+              Delete
+            </button>
+          </div>
+        );
+      
+      case 'versions':
+        return selectedVersion ? (
+          <div className="flex gap-2 items-center">
+            <span className="text-sm text-blue-600 font-medium">
+              Selected: {selectedVersion.version_number}
+            </span>
+            <button
+              onClick={handleClearVersionSelection}
+              className="px-3 py-1.5 text-sm text-gray-600 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
+            >
+              Clear Selection
+            </button>
+            <button
+              onClick={handleEditFormulation}
+              className="px-3 py-1.5 text-sm text-white bg-blue-600 rounded-md hover:bg-blue-700 flex items-center gap-1"
+            >
+              <Edit2 className="w-3 h-3" />
+              Edit This Version
+            </button>
+          </div>
+        ) : null;
+      
+      case 'bom':
+        return selectedVersion ? (
+          <div className="flex items-center gap-2 text-sm">
+            <Tag className="w-4 h-4 text-blue-600" />
+            <span className="text-blue-600 font-medium">
+              Showing BOM for: {selectedVersion.version_number}
+            </span>
+            <button
+              onClick={handleClearVersionSelection}
+              className="px-2 py-1 text-xs text-gray-500 hover:text-gray-700 underline"
+            >
+              Use Latest
+            </button>
+          </div>
+        ) : null;
+      
+      case 'tests':
+        return null; // No actions for tests tab
+      
+      default:
+        return null;
+    }
+  };
+
+  // ---------------------------------------------------------------------------
+  // RENDER TABS
+  // ---------------------------------------------------------------------------
+
   const renderDetailsTab = () => (
     <div className="space-y-6">
-      {/* Summary Cards */}
+      {/* Cost Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="bg-white rounded-lg border p-4">
-          <div className="text-sm text-gray-500 mb-1">Total Cost per Piece</div>
-          <div className="text-2xl font-bold text-gray-900">
-            {formulation.total_cost_per_piece 
-              ? `₹${parseFloat(formulation.total_cost_per_piece).toFixed(2)}`
-              : '-'
-            }
+        <div className="bg-white rounded-lg border p-6">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-blue-100 rounded-lg">
+              <DollarSign className="w-5 h-5 text-blue-600" />
+            </div>
+            <div>
+              <div className="text-sm text-gray-500">Total Cost per Piece</div>
+              <div className="text-2xl font-bold text-gray-900">
+                {formatCurrency(formulation.total_cost_per_piece)}
+              </div>
+            </div>
           </div>
         </div>
-        <div className="bg-white rounded-lg border p-4">
-          <div className="text-sm text-gray-500 mb-1">Ingredients</div>
-          <div className="text-2xl font-bold text-gray-900">
-            {formulation.ingredients?.length || 0}
+
+        <div className="bg-white rounded-lg border p-6">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-green-100 rounded-lg">
+              <Package className="w-5 h-5 text-green-600" />
+            </div>
+            <div>
+              <div className="text-sm text-gray-500">Ingredients</div>
+              <div className="text-2xl font-bold text-gray-900">
+                {formulation.ingredients?.length || 0}
+              </div>
+            </div>
           </div>
         </div>
-        <div className="bg-white rounded-lg border p-4">
-          <div className="text-sm text-gray-500 mb-1">Total Percentage</div>
-          <div className="text-2xl font-bold text-gray-900">
-            {formulation.ingredients?.reduce((sum, ing) => sum + (parseFloat(ing.percentage) || 0), 0).toFixed(1)}%
+
+        <div className="bg-white rounded-lg border p-6">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-purple-100 rounded-lg">
+              <CheckCircle className="w-5 h-5 text-purple-600" />
+            </div>
+            <div>
+              <div className="text-sm text-gray-500">Total Percentage</div>
+              <div className="text-2xl font-bold text-gray-900">
+                {formulation.ingredients?.reduce((sum, ing) => sum + parseFloat(ing.percentage || 0), 0).toFixed(1)}%
+              </div>
+            </div>
           </div>
         </div>
       </div>
 
       {/* Ingredients Table */}
-      <div className="bg-white rounded-lg border">
-        <div className="px-4 py-3 border-b">
-          <h3 className="font-medium text-gray-900">Ingredients</h3>
+      <div className="bg-white rounded-lg border overflow-hidden">
+        <div className="px-6 py-4 border-b bg-gray-50">
+          <h3 className="font-semibold text-gray-900">Ingredients</h3>
         </div>
-        {formulation.ingredients && formulation.ingredients.length > 0 ? (
+        
+        {formulation.ingredients?.length > 0 ? (
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
                 <tr>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Ingredient</th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Percentage</th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Cost/kg</th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Cost in Formula</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Ingredient</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Category</th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Percentage</th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Cost/kg</th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Cost in Formula</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200">
-                {formulation.ingredients.map((ing, index) => (
-                  <tr key={index} className="hover:bg-gray-50">
-                    <td className="px-4 py-3">
-                      <div className="font-medium text-gray-900">{ing.ingredient_name}</div>
-                      {ing.category_name && (
-                        <div className="text-sm text-gray-500">{ing.category_name}</div>
+                {formulation.ingredients.map((ing, idx) => (
+                  <tr key={idx} className="hover:bg-gray-50">
+                    <td className="px-6 py-4">
+                      <div className="font-medium text-gray-900">{ing.ingredient_name || ing.name}</div>
+                      {ing.inci_name && (
+                        <div className="text-sm text-gray-500">{ing.inci_name}</div>
                       )}
                     </td>
-                    <td className="px-4 py-3 text-right text-gray-900">
+                    <td className="px-6 py-4 text-sm text-gray-500">
+                      {ing.category_name || '-'}
+                    </td>
+                    <td className="px-6 py-4 text-sm text-right font-medium">
                       {parseFloat(ing.percentage).toFixed(2)}%
                     </td>
-                    <td className="px-4 py-3 text-right text-gray-600">
-                      {ing.landed_cost_net_gst ? `₹${parseFloat(ing.landed_cost_net_gst).toFixed(2)}` : '-'}
+                    <td className="px-6 py-4 text-sm text-right text-gray-600">
+                      {ing.landed_cost_net_gst 
+                        ? formatCurrency(ing.landed_cost_net_gst)
+                        : '-'
+                      }
                     </td>
-                    <td className="px-4 py-3 text-right text-gray-900 font-medium">
-                      {ing.cost_per_piece ? `₹${parseFloat(ing.cost_per_piece).toFixed(4)}` : '-'}
+                    <td className="px-6 py-4 text-sm text-right font-medium text-gray-900">
+                      {ing.cost_per_piece 
+                        ? formatCurrency(ing.cost_per_piece)
+                        : '-'
+                      }
                     </td>
                   </tr>
                 ))}
               </tbody>
+              <tfoot className="bg-gray-50">
+                <tr>
+                  <td colSpan="2" className="px-6 py-3 text-sm font-medium text-gray-900">
+                    Total
+                  </td>
+                  <td className="px-6 py-3 text-sm text-right font-bold text-gray-900">
+                    {formulation.ingredients.reduce((sum, ing) => sum + parseFloat(ing.percentage || 0), 0).toFixed(2)}%
+                  </td>
+                  <td className="px-6 py-3"></td>
+                  <td className="px-6 py-3 text-sm text-right font-bold text-blue-600">
+                    {formatCurrency(formulation.total_cost_per_piece)}
+                  </td>
+                </tr>
+              </tfoot>
             </table>
           </div>
         ) : (
           <div className="p-8 text-center text-gray-500">
-            No ingredients added yet
+            No ingredients added yet.
           </div>
         )}
       </div>
 
       {/* Notes */}
       {formulation.notes && (
-        <div className="bg-white rounded-lg border p-4">
-          <h3 className="font-medium text-gray-900 mb-2">Notes</h3>
+        <div className="bg-white rounded-lg border p-6">
+          <h3 className="font-semibold text-gray-900 mb-2">Notes</h3>
           <p className="text-gray-600 whitespace-pre-wrap">{formulation.notes}</p>
         </div>
       )}
@@ -190,67 +455,40 @@ const FormulationDetail = () => {
   const renderVersionsTab = () => (
     <VersionTimeline 
       formulation={formulation} 
-      onVersionSelect={(version) => {
-        // Could implement version preview here
-        console.log('Selected version:', version);
-      }}
-      onRestore={() => {
-        loadFormulation();
-        showSuccess('Version restored successfully');
-      }}
+      onVersionSelect={handleVersionSelect}
+      selectedVersionId={selectedVersion?.id}
     />
   );
 
   const renderBOMTab = () => (
-    <BOMGenerator formulation={formulation} />
+    <BOMGenerator 
+      formulation={formulation} 
+      selectedVersion={selectedVersion}
+    />
   );
 
   const renderTestsTab = () => (
-    <div className="bg-white rounded-lg border p-8 text-center text-gray-500">
-      <TestTube className="w-12 h-12 mx-auto mb-4 text-gray-300" />
-      <h3 className="font-medium text-gray-900 mb-2">Test Results</h3>
-      <p>Test results functionality coming soon</p>
-    </div>
+    <TestResults 
+      formulation={formulation}
+      selectedVersion={selectedVersion}
+    />
   );
 
   // ---------------------------------------------------------------------------
-  // MAIN RENDER
+  // LOADING/ERROR STATES
   // ---------------------------------------------------------------------------
 
   if (loading) {
-    return <PageLoading message="Loading formulation..." />;
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loader2 className="w-8 h-8 text-blue-600 animate-spin" />
+      </div>
+    );
   }
 
   if (error || !formulation) {
     return (
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="bg-red-50 border border-red-200 rounded-md p-4 flex items-start gap-3">
-          <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
-          <div>
-            <p className="text-sm text-red-800">{error || 'Formulation not found'}</p>
-            <button
-              onClick={() => navigate('/formulations')}
-              className="mt-2 text-sm text-red-600 hover:text-red-700 font-medium"
-            >
-              Back to Formulations
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  const tabs = [
-    { id: 'details', name: 'Details', icon: FileText },
-    { id: 'versions', name: 'Version History', icon: Clock },
-    { id: 'bom', name: 'Bill of Materials', icon: Package },
-    { id: 'tests', name: 'Test Results', icon: TestTube }
-  ];
-
-  return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      {/* Header */}
-      <div className="mb-6">
         <button
           onClick={() => navigate('/formulations')}
           className="flex items-center gap-2 text-gray-600 hover:text-gray-900 mb-4"
@@ -258,21 +496,62 @@ const FormulationDetail = () => {
           <ArrowLeft className="w-4 h-4" />
           Back to Formulations
         </button>
-
-        <div className="flex items-start justify-between">
+        
+        <div className="bg-red-50 border border-red-200 rounded-md p-4 flex items-start gap-3">
+          <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0" />
           <div>
+            <h3 className="font-medium text-red-800">Error Loading Formulation</h3>
+            <p className="text-sm text-red-700 mt-1">{error || 'Formulation not found'}</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // MAIN RENDER
+  // ---------------------------------------------------------------------------
+
+  return (
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      {/* Back Button - Always visible */}
+      <button
+        onClick={() => navigate('/formulations')}
+        className="flex items-center gap-2 text-gray-600 hover:text-gray-900 mb-4"
+      >
+        <ArrowLeft className="w-4 h-4" />
+        Back to Formulations
+      </button>
+
+      {/* Header */}
+      <div className="bg-white rounded-lg border p-6 mb-6">
+        <div className="flex justify-between items-start">
+          <div>
+            {/* Product Name and Status */}
             <div className="flex items-center gap-3 mb-2">
-              <h1 className="text-3xl font-bold text-gray-900">
+              <h1 className="text-2xl font-bold text-gray-900">
                 {formulation.product_name}
               </h1>
               {getStatusBadge(formulation.status)}
             </div>
-            <div className="flex items-center gap-4 text-sm text-gray-600">
-              <span>Version: {formulation.current_version || 'v1.0'}</span>
-              <span>•</span>
+            
+            {/* Version Number - PROMINENT */}
+            <div className="flex items-center gap-2 mb-3">
+              <span className="px-3 py-1 bg-blue-100 text-blue-800 text-lg font-bold rounded-md">
+                {formulation.current_version}
+              </span>
+              {selectedVersion && selectedVersion.version_number !== formulation.current_version && (
+                <span className="px-2 py-1 bg-yellow-100 text-yellow-800 text-sm rounded">
+                  Viewing: {selectedVersion.version_number}
+                </span>
+              )}
+            </div>
+            
+            {/* Meta info */}
+            <div className="text-sm text-gray-500 flex items-center gap-2 flex-wrap">
               <span>{formulation.product_type_name || 'Unknown Type'}</span>
               <span>•</span>
-              <span>{formulation.grammage || 0}g per piece</span>
+              <span>{formulation.grammage}g per piece</span>
               {formulation.pack_count > 1 && (
                 <>
                   <span>•</span>
@@ -280,61 +559,16 @@ const FormulationDetail = () => {
                 </>
               )}
             </div>
-            <div className="flex items-center gap-4 text-sm text-gray-500 mt-1">
-              {formulation.created_at && (
-                <span>
-                  Created: {new Date(formulation.created_at).toLocaleDateString('en-IN', {
-                    day: '2-digit',
-                    month: 'short',
-                    year: 'numeric'
-                  })}
-                </span>
-              )}
-              {formulation.updated_at && formulation.updated_at !== formulation.created_at && (
-                <>
-                  <span>•</span>
-                  <span>
-                    Updated: {new Date(formulation.updated_at).toLocaleDateString('en-IN', {
-                      day: '2-digit',
-                      month: 'short',
-                      year: 'numeric'
-                    })}
-                  </span>
-                </>
-              )}
-            </div>
           </div>
 
-          {/* Action Buttons */}
-          <div className="flex gap-2">
-            <button
-              onClick={handleDuplicate}
-              className="px-4 py-2 text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 flex items-center gap-2"
-            >
-              <Copy className="w-4 h-4" />
-              Duplicate
-            </button>
-            <button
-              onClick={() => navigate(`/formulations/${id}/edit`)}
-              className="px-4 py-2 text-white bg-blue-600 rounded-md hover:bg-blue-700 flex items-center gap-2"
-            >
-              <Edit2 className="w-4 h-4" />
-              Edit
-            </button>
-            <button
-              onClick={handleDelete}
-              className="px-4 py-2 text-white bg-red-600 rounded-md hover:bg-red-700 flex items-center gap-2"
-            >
-              <Trash2 className="w-4 h-4" />
-              Delete
-            </button>
-          </div>
+          {/* Tab-specific Action Buttons */}
+          {renderTabActions()}
         </div>
       </div>
 
       {/* Tabs */}
       <div className="border-b border-gray-200 mb-6">
-        <nav className="-mb-px flex space-x-8">
+        <nav className="-mb-px flex space-x-8 overflow-x-auto">
           {tabs.map((tab) => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;
@@ -344,7 +578,7 @@ const FormulationDetail = () => {
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
                 className={`
-                  py-4 px-1 border-b-2 font-medium text-sm flex items-center gap-2
+                  py-4 px-1 border-b-2 font-medium text-sm flex items-center gap-2 whitespace-nowrap
                   ${isActive
                     ? 'border-blue-500 text-blue-600'
                     : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'

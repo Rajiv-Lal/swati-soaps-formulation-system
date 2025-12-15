@@ -23,6 +23,7 @@ import Login from './pages/Login';
 import Ingredients from './pages/Ingredients';
 import Formulations from './pages/Formulations';
 import FormulationDetail from './pages/FormulationDetail';
+import AdminPage from './pages/AdminPage';
 import FormulationEditor from './components/FormulationEditor';
 
 // =============================================================================
@@ -160,6 +161,7 @@ function ProtectedRoutes() {
         <Route path="/formulations/create" element={<FormulationEditor />} />
         <Route path="/formulations/:id" element={<FormulationDetail />} />
         <Route path="/formulations/:id/edit" element={<FormulationEditor />} />
+        <Route path="/admin" element={<AdminPage />} />
         <Route path="*" element={<Navigate to="/formulations" replace />} />
       </Routes>
     </AppLayout>

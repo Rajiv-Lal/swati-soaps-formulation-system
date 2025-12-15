@@ -1,7 +1,7 @@
 """
 SWATI SOAPS FORMULATION MANAGEMENT SYSTEM - BACKEND API
 Flask REST API with SQLite
-Version: 2.1 (Production-Ready with Version Control)
+Version: 2.2 (Enhanced with Usage Warnings & Estimated Scores)
 """
 
 from flask import Flask, request, jsonify
@@ -336,18 +336,28 @@ def create_formulation():
             
             percentage = float(ing['percentage'])
             
-            # Validate usage rate limits (HARD STOP)
+            # Validate usage rate limits (WARNING with override option)
+            override_limits = data.get('override_usage_limits', False)
+            
             if ingredient['usage_rate_max'] is not None and percentage > float(ingredient['usage_rate_max']):
-                conn.close()
-                return jsonify({
-                    'error': f'"{ingredient["name"]}" exceeds maximum usage rate ({ingredient["usage_rate_max"]}%). You specified {percentage}%'
-                }), 400
+                if not override_limits:
+                    regulatory_warnings.append({
+                        'type': 'usage_rate_max',
+                        'ingredient': ingredient['name'],
+                        'limit': float(ingredient['usage_rate_max']),
+                        'actual': percentage,
+                        'message': f'"{ingredient["name"]}" exceeds maximum usage rate ({ingredient["usage_rate_max"]}%). You specified {percentage}%'
+                    })
             
             if ingredient['usage_rate_min'] is not None and percentage < float(ingredient['usage_rate_min']):
-                conn.close()
-                return jsonify({
-                    'error': f'"{ingredient["name"]}" is below minimum usage rate ({ingredient["usage_rate_min"]}%). You specified {percentage}%'
-                }), 400
+                if not override_limits:
+                    regulatory_warnings.append({
+                        'type': 'usage_rate_min',
+                        'ingredient': ingredient['name'],
+                        'limit': float(ingredient['usage_rate_min']),
+                        'actual': percentage,
+                        'message': f'"{ingredient["name"]}" is below minimum usage rate ({ingredient["usage_rate_min"]}%). You specified {percentage}%'
+                    })
             
             # Check regulatory approval (ADVISORY WARNING - not a hard stop)
             eu_approved = ingredient['eu_approved'] if ingredient['eu_approved'] is not None else 1
@@ -530,18 +540,28 @@ def update_formulation(id):
                 
                 percentage = float(ing['percentage'])
                 
-                # Validate usage rate limits (HARD STOP)
+                # Validate usage rate limits (WARNING with override option)
+                override_limits = data.get('override_usage_limits', False)
+                
                 if ingredient['usage_rate_max'] is not None and percentage > float(ingredient['usage_rate_max']):
-                    conn.close()
-                    return jsonify({
-                        'error': f'"{ingredient["name"]}" exceeds maximum usage rate ({ingredient["usage_rate_max"]}%). You specified {percentage}%'
-                    }), 400
+                    if not override_limits:
+                        regulatory_warnings.append({
+                            'type': 'usage_rate_max',
+                            'ingredient': ingredient['name'],
+                            'limit': float(ingredient['usage_rate_max']),
+                            'actual': percentage,
+                            'message': f'"{ingredient["name"]}" exceeds maximum usage rate ({ingredient["usage_rate_max"]}%). You specified {percentage}%'
+                        })
                 
                 if ingredient['usage_rate_min'] is not None and percentage < float(ingredient['usage_rate_min']):
-                    conn.close()
-                    return jsonify({
-                        'error': f'"{ingredient["name"]}" is below minimum usage rate ({ingredient["usage_rate_min"]}%). You specified {percentage}%'
-                    }), 400
+                    if not override_limits:
+                        regulatory_warnings.append({
+                            'type': 'usage_rate_min',
+                            'ingredient': ingredient['name'],
+                            'limit': float(ingredient['usage_rate_min']),
+                            'actual': percentage,
+                            'message': f'"{ingredient["name"]}" is below minimum usage rate ({ingredient["usage_rate_min"]}%). You specified {percentage}%'
+                        })
                 
                 # Check regulatory approval (ADVISORY WARNING - not a hard stop)
                 eu_approved = ingredient['eu_approved'] if ingredient['eu_approved'] is not None else 1
@@ -1261,25 +1281,36 @@ def delete_test_result(test_id):
 @app.route('/api/formulations/<int:id>/bom/generate', methods=['POST'])
 @jwt_required()
 def generate_bom(id):
-    """Generate Bill of Materials with wastage calculation"""
+    """Generate Bill of Materials with wastage calculation and version support"""
     try:
-        data = request.get_json()
+        data = request.get_json() or {}
         
         target_quantity = int(data.get('quantity', 1000))
         pack_count = int(data.get('pack_count', 1))
         wastage_percent = float(data.get('wastage_percent', 2.0))
+        version_id = data.get('version_id')  # Optional: specific version
+        batch_unit = data.get('batch_unit', 'kg')  # 'kg' or 'tonnes'
         
         conn = get_db()
         cursor = conn.cursor()
         
-        cursor.execute('''
-            SELECT f.*, fv.version_number
-            FROM formulations f
-            LEFT JOIN formulation_versions fv ON f.id = fv.formulation_id
-            WHERE f.id = ?
-            ORDER BY fv.created_at DESC
-            LIMIT 1
-        ''', (id,))
+        # Get formulation with optional specific version
+        if version_id:
+            cursor.execute('''
+                SELECT f.*, fv.version_number, fv.id as version_id
+                FROM formulations f
+                JOIN formulation_versions fv ON f.id = fv.formulation_id
+                WHERE f.id = ? AND fv.id = ?
+            ''', (id, version_id))
+        else:
+            cursor.execute('''
+                SELECT f.*, fv.version_number, fv.id as version_id
+                FROM formulations f
+                LEFT JOIN formulation_versions fv ON f.id = fv.formulation_id
+                WHERE f.id = ?
+                ORDER BY fv.created_at DESC
+                LIMIT 1
+            ''', (id,))
         
         formulation = cursor.fetchone()
         
@@ -1287,14 +1318,25 @@ def generate_bom(id):
             conn.close()
             return jsonify({'error': 'Formulation not found'}), 404
         
-        cursor.execute('''
-            SELECT fi.*, i.name as ingredient_name, i.landed_cost_net_gst,
-                   c.name as category_name
-            FROM formulation_ingredients fi
-            JOIN ingredients i ON fi.ingredient_id = i.id
-            LEFT JOIN categories c ON i.category_id = c.id
-            WHERE fi.formulation_id = ?
-        ''', (id,))
+        # Get ingredients for specific version if version_id provided
+        if version_id and formulation['version_id']:
+            cursor.execute('''
+                SELECT fi.*, i.name as ingredient_name, i.landed_cost_net_gst,
+                       c.name as category_name
+                FROM formulation_ingredients fi
+                JOIN ingredients i ON fi.ingredient_id = i.id
+                LEFT JOIN categories c ON i.category_id = c.id
+                WHERE fi.formulation_id = ? AND fi.version_id = ?
+            ''', (id, version_id))
+        else:
+            cursor.execute('''
+                SELECT fi.*, i.name as ingredient_name, i.landed_cost_net_gst,
+                       c.name as category_name
+                FROM formulation_ingredients fi
+                JOIN ingredients i ON fi.ingredient_id = i.id
+                LEFT JOIN categories c ON i.category_id = c.id
+                WHERE fi.formulation_id = ?
+            ''', (id,))
         
         ingredients = [dict_from_row(row) for row in cursor.fetchall()]
         conn.close()
@@ -1365,6 +1407,171 @@ def generate_bom(id):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+
+
+
+# ============================================================================
+# ESTIMATED SCORES ENDPOINT (Lather & Hardness)
+# ============================================================================
+
+@app.route('/api/formulations/<int:id>/estimated-scores', methods=['GET'])
+@jwt_required()
+def get_estimated_scores(id):
+    """Calculate estimated lather and hardness scores from ingredient coefficients"""
+    try:
+        version_id = request.args.get('version_id')
+        
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        # Get formulation
+        cursor.execute('SELECT * FROM formulations WHERE id = ?', (id,))
+        formulation = cursor.fetchone()
+        
+        if not formulation:
+            conn.close()
+            return jsonify({'error': 'Formulation not found'}), 404
+        
+        # Get ingredients with their coefficients
+        if version_id:
+            cursor.execute('''
+                SELECT fi.ingredient_id, fi.percentage, i.name,
+                       ip.hardness_coefficient, ip.lather_coefficient,
+                       ip.sap_value, ip.iodine_value, ip.ins_value
+                FROM formulation_ingredients fi
+                JOIN ingredients i ON fi.ingredient_id = i.id
+                LEFT JOIN ingredient_properties ip ON i.id = ip.ingredient_id
+                WHERE fi.formulation_id = ? AND fi.version_id = ?
+            ''', (id, version_id))
+        else:
+            cursor.execute('''
+                SELECT fi.ingredient_id, fi.percentage, i.name,
+                       ip.hardness_coefficient, ip.lather_coefficient,
+                       ip.sap_value, ip.iodine_value, ip.ins_value
+                FROM formulation_ingredients fi
+                JOIN ingredients i ON fi.ingredient_id = i.id
+                LEFT JOIN ingredient_properties ip ON i.id = ip.ingredient_id
+                WHERE fi.formulation_id = ?
+            ''', (id,))
+        
+        ingredients = cursor.fetchall()
+        conn.close()
+        
+        # Calculate weighted scores
+        total_hardness = 0
+        total_lather = 0
+        total_percentage_with_coefficients = 0
+        ingredient_contributions = []
+        
+        for ing in ingredients:
+            percentage = float(ing['percentage']) / 100  # Convert to decimal
+            hardness_coef = float(ing['hardness_coefficient'] or 0)
+            lather_coef = float(ing['lather_coefficient'] or 0)
+            
+            if hardness_coef > 0 or lather_coef > 0:
+                total_percentage_with_coefficients += float(ing['percentage'])
+                total_hardness += percentage * hardness_coef
+                total_lather += percentage * lather_coef
+                
+                ingredient_contributions.append({
+                    'name': ing['name'],
+                    'percentage': float(ing['percentage']),
+                    'hardness_contribution': round(percentage * hardness_coef * 100, 2),
+                    'lather_contribution': round(percentage * lather_coef * 100, 2),
+                    'sap_value': ing['sap_value'],
+                    'iodine_value': ing['iodine_value'],
+                    'ins_value': ing['ins_value']
+                })
+        
+        return jsonify({
+            'formulation_id': id,
+            'version_id': version_id,
+            'estimated_scores': {
+                'hardness': round(total_hardness * 100, 1),  # Scale to 0-100
+                'lather': round(total_lather * 100, 1),      # Scale to 0-100
+                'hardness_rating': 'High' if total_hardness > 0.6 else 'Medium' if total_hardness > 0.4 else 'Low',
+                'lather_rating': 'High' if total_lather > 0.5 else 'Medium' if total_lather > 0.3 else 'Low'
+            },
+            'coverage': {
+                'percentage_with_data': round(total_percentage_with_coefficients, 1),
+                'note': f'{round(total_percentage_with_coefficients, 1)}% of formula has predictive data'
+            },
+            'ingredient_contributions': ingredient_contributions
+        }), 200
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/formulations/<int:id>/refresh-prices', methods=['POST'])
+@jwt_required()
+def refresh_formulation_prices(id):
+    """Refresh formulation costs using current ingredient prices without changing ingredients"""
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        # Get formulation
+        cursor.execute('SELECT * FROM formulations WHERE id = ?', (id,))
+        formulation = cursor.fetchone()
+        
+        if not formulation:
+            conn.close()
+            return jsonify({'error': 'Formulation not found'}), 404
+        
+        grammage = float(formulation['grammage'])
+        
+        # Get current ingredients
+        cursor.execute('''
+            SELECT fi.id, fi.ingredient_id, fi.percentage, i.landed_cost_net_gst, i.name
+            FROM formulation_ingredients fi
+            JOIN ingredients i ON fi.ingredient_id = i.id
+            WHERE fi.formulation_id = ?
+        ''', (id,))
+        
+        ingredients = cursor.fetchall()
+        
+        total_cost = 0
+        updated_ingredients = []
+        
+        for ing in ingredients:
+            percentage = float(ing['percentage'])
+            cost_per_kg = float(ing['landed_cost_net_gst'] or 0)
+            quantity_grams = (grammage * percentage) / 100
+            cost_per_piece = (quantity_grams / 1000) * cost_per_kg
+            
+            # Update ingredient cost
+            cursor.execute('''
+                UPDATE formulation_ingredients 
+                SET cost_per_piece = ?, quantity_grams = ?
+                WHERE id = ?
+            ''', (cost_per_piece, quantity_grams, ing['id']))
+            
+            total_cost += cost_per_piece
+            updated_ingredients.append({
+                'name': ing['name'],
+                'old_cost': None,  # Could track if needed
+                'new_cost': round(cost_per_piece, 4)
+            })
+        
+        # Update formulation total cost
+        cursor.execute('''
+            UPDATE formulations 
+            SET total_cost_per_piece = ?, updated_at = ?
+            WHERE id = ?
+        ''', (total_cost, datetime.now().isoformat(), id))
+        
+        conn.commit()
+        conn.close()
+        
+        return jsonify({
+            'message': 'Prices refreshed successfully',
+            'new_total_cost': round(total_cost, 4),
+            'updated_ingredients': updated_ingredients
+        }), 200
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 # ============================================================================
 # ADVANCED SEARCH ENDPOINTS
@@ -1920,6 +2127,429 @@ def import_formulations_from_excel():
         return jsonify({'error': str(e)}), 500
 
 
+# ============================================================================
+# ============================================================================
+# ROLE PERMISSION DECORATOR (Add after imports)
+# ============================================================================
+
+def role_required(*allowed_roles):
+    """Decorator to check user role permissions"""
+    def decorator(f):
+        @wraps(f)
+        def decorated_function(*args, **kwargs):
+            user_id = get_jwt_identity()
+            
+            conn = get_db()
+            cursor = conn.cursor()
+            cursor.execute('SELECT role FROM users WHERE id = ?', (user_id,))
+            user = cursor.fetchone()
+            conn.close()
+            
+            if not user or user['role'] not in allowed_roles:
+                return jsonify({'error': 'Permission denied. Required roles: ' + ', '.join(allowed_roles)}), 403
+            
+            return f(*args, **kwargs)
+        return decorated_function
+    return decorator
+
+
+# ============================================================================
+# ADMIN USER MANAGEMENT ENDPOINTS
+# ============================================================================
+
+@app.route('/api/admin/users', methods=['GET'])
+@jwt_required()
+@role_required('owner', 'admin')
+def get_all_users():
+    """Get all users (admin only)"""
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            SELECT id, email, full_name, role, is_active, last_login, created_at
+            FROM users
+            ORDER BY role, full_name
+        ''')
+        
+        users = [dict_from_row(row) for row in cursor.fetchall()]
+        conn.close()
+        
+        return jsonify({'users': users}), 200
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/admin/users', methods=['POST'])
+@jwt_required()
+@role_required('owner', 'admin')
+def create_user():
+    """Create new user (admin only)"""
+    try:
+        data = request.get_json()
+        
+        email = data.get('email')
+        password = data.get('password')
+        full_name = data.get('full_name', '')
+        role = data.get('role', 'viewer')
+        is_active = data.get('is_active', True)
+        
+        if not email or not password:
+            return jsonify({'error': 'Email and password are required'}), 400
+        
+        # Validate role
+        valid_roles = ['viewer', 'qc', 'accountant', 'owner', 'admin']
+        if role not in valid_roles:
+            return jsonify({'error': f'Invalid role. Must be one of: {", ".join(valid_roles)}'}), 400
+        
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        # Check if email already exists
+        cursor.execute('SELECT id FROM users WHERE email = ?', (email,))
+        if cursor.fetchone():
+            conn.close()
+            return jsonify({'error': 'Email already exists'}), 400
+        
+        # Insert new user (note: in production, use proper password hashing!)
+        cursor.execute('''
+            INSERT INTO users (email, password_hash, full_name, role, is_active, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+        ''', (email, password, full_name, role, is_active, datetime.now().isoformat()))
+        
+        user_id = cursor.lastrowid
+        conn.commit()
+        conn.close()
+        
+        return jsonify({
+            'message': 'User created successfully',
+            'user_id': user_id
+        }), 201
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/admin/users/<int:user_id>', methods=['PUT'])
+@jwt_required()
+@role_required('owner', 'admin')
+def update_user(user_id):
+    """Update user (admin only)"""
+    try:
+        data = request.get_json()
+        
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        # Check user exists
+        cursor.execute('SELECT * FROM users WHERE id = ?', (user_id,))
+        user = cursor.fetchone()
+        
+        if not user:
+            conn.close()
+            return jsonify({'error': 'User not found'}), 404
+        
+        # Build update query dynamically
+        updates = []
+        params = []
+        
+        if 'email' in data:
+            updates.append('email = ?')
+            params.append(data['email'])
+        
+        if 'full_name' in data:
+            updates.append('full_name = ?')
+            params.append(data['full_name'])
+        
+        if 'password' in data and data['password']:
+            updates.append('password_hash = ?')
+            params.append(data['password'])  # In production, hash this!
+        
+        if 'role' in data:
+            valid_roles = ['viewer', 'qc', 'accountant', 'owner', 'admin']
+            if data['role'] not in valid_roles:
+                conn.close()
+                return jsonify({'error': f'Invalid role'}), 400
+            updates.append('role = ?')
+            params.append(data['role'])
+        
+        if 'is_active' in data:
+            updates.append('is_active = ?')
+            params.append(1 if data['is_active'] else 0)
+        
+        if updates:
+            params.append(user_id)
+            cursor.execute(f'''
+                UPDATE users SET {', '.join(updates)}
+                WHERE id = ?
+            ''', params)
+            conn.commit()
+        
+        conn.close()
+        
+        return jsonify({'message': 'User updated successfully'}), 200
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/admin/users/<int:user_id>', methods=['DELETE'])
+@jwt_required()
+@role_required('admin')
+def delete_user(user_id):
+    """Delete user (admin only)"""
+    try:
+        current_user_id = get_jwt_identity()
+        
+        if int(current_user_id) == user_id:
+            return jsonify({'error': 'Cannot delete your own account'}), 400
+        
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        cursor.execute('DELETE FROM users WHERE id = ?', (user_id,))
+        
+        if cursor.rowcount == 0:
+            conn.close()
+            return jsonify({'error': 'User not found'}), 404
+        
+        conn.commit()
+        conn.close()
+        
+        return jsonify({'message': 'User deleted successfully'}), 200
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# ============================================================================
+# APPROVAL WORKFLOW ENDPOINTS
+# ============================================================================
+
+@app.route('/api/admin/pending-approvals', methods=['GET'])
+@jwt_required()
+@role_required('owner', 'admin')
+def get_pending_approvals():
+    """Get all pending approval requests"""
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            SELECT 
+                fv.id as version_id,
+                fv.formulation_id,
+                fv.version_number,
+                fv.change_notes,
+                fv.approval_status,
+                fv.submitted_at,
+                fv.submitted_by,
+                f.product_name,
+                u.full_name as submitted_by_name
+            FROM formulation_versions fv
+            JOIN formulations f ON fv.formulation_id = f.id
+            LEFT JOIN users u ON fv.submitted_by = u.id
+            WHERE fv.approval_status = 'pending'
+            ORDER BY fv.submitted_at ASC
+        ''')
+        
+        approvals = [dict_from_row(row) for row in cursor.fetchall()]
+        conn.close()
+        
+        return jsonify({'pending_approvals': approvals}), 200
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/admin/approvals/<int:version_id>/approve', methods=['POST'])
+@jwt_required()
+@role_required('owner', 'admin')
+def approve_version(version_id):
+    """Approve a formulation version"""
+    try:
+        user_id = get_jwt_identity()
+        data = request.get_json() or {}
+        notes = data.get('notes', '')
+        
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        # Check version exists and is pending
+        cursor.execute('''
+            SELECT * FROM formulation_versions WHERE id = ? AND approval_status = 'pending'
+        ''', (version_id,))
+        version = cursor.fetchone()
+        
+        if not version:
+            conn.close()
+            return jsonify({'error': 'Version not found or not pending approval'}), 404
+        
+        # Approve the version
+        cursor.execute('''
+            UPDATE formulation_versions
+            SET approval_status = 'approved',
+                approved_by = ?,
+                approved_at = ?,
+                approval_notes = ?
+            WHERE id = ?
+        ''', (user_id, datetime.now().isoformat(), notes, version_id))
+        
+        conn.commit()
+        conn.close()
+        
+        return jsonify({'message': 'Version approved successfully'}), 200
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/admin/approvals/<int:version_id>/reject', methods=['POST'])
+@jwt_required()
+@role_required('owner', 'admin')
+def reject_version(version_id):
+    """Reject a formulation version"""
+    try:
+        user_id = get_jwt_identity()
+        data = request.get_json() or {}
+        notes = data.get('notes', '')
+        
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        # Check version exists and is pending
+        cursor.execute('''
+            SELECT * FROM formulation_versions WHERE id = ? AND approval_status = 'pending'
+        ''', (version_id,))
+        version = cursor.fetchone()
+        
+        if not version:
+            conn.close()
+            return jsonify({'error': 'Version not found or not pending approval'}), 404
+        
+        # Reject the version
+        cursor.execute('''
+            UPDATE formulation_versions
+            SET approval_status = 'rejected',
+                approved_by = ?,
+                approved_at = ?,
+                approval_notes = ?
+            WHERE id = ?
+        ''', (user_id, datetime.now().isoformat(), notes, version_id))
+        
+        conn.commit()
+        conn.close()
+        
+        return jsonify({'message': 'Version rejected'}), 200
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/formulations/<int:id>/submit-for-approval', methods=['POST'])
+@jwt_required()
+def submit_for_approval(id):
+    """Submit a formulation version for owner approval"""
+    try:
+        user_id = get_jwt_identity()
+        data = request.get_json() or {}
+        version_id = data.get('version_id')
+        
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        # Get the version to submit (latest if not specified)
+        if version_id:
+            cursor.execute('''
+                SELECT * FROM formulation_versions
+                WHERE id = ? AND formulation_id = ?
+            ''', (version_id, id))
+        else:
+            cursor.execute('''
+                SELECT * FROM formulation_versions
+                WHERE formulation_id = ?
+                ORDER BY created_at DESC LIMIT 1
+            ''', (id,))
+        
+        version = cursor.fetchone()
+        
+        if not version:
+            conn.close()
+            return jsonify({'error': 'Version not found'}), 404
+        
+        # Update to pending status
+        cursor.execute('''
+            UPDATE formulation_versions
+            SET approval_status = 'pending',
+                submitted_by = ?,
+                submitted_at = ?
+            WHERE id = ?
+        ''', (user_id, datetime.now().isoformat(), version['id']))
+        
+        conn.commit()
+        conn.close()
+        
+        return jsonify({'message': 'Submitted for approval'}), 200
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# ============================================================================
+# MAKE FORMULATION ACTIVE (Owner only)
+# ============================================================================
+
+@app.route('/api/formulations/<int:id>/make-active', methods=['POST'])
+@jwt_required()
+@role_required('owner', 'admin')
+def make_formulation_active(id):
+    """Make a formulation active (owner only)"""
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        # Check formulation exists
+        cursor.execute('SELECT * FROM formulations WHERE id = ?', (id,))
+        formulation = cursor.fetchone()
+        
+        if not formulation:
+            conn.close()
+            return jsonify({'error': 'Formulation not found'}), 404
+        
+        # Check if latest version is rejected
+        cursor.execute('''
+            SELECT approval_status FROM formulation_versions
+            WHERE formulation_id = ?
+            ORDER BY created_at DESC LIMIT 1
+        ''', (id,))
+        latest_version = cursor.fetchone()
+        
+        if latest_version and latest_version['approval_status'] == 'rejected':
+            conn.close()
+            return jsonify({
+                'error': 'Cannot make active: latest version is rejected. It must be approved first.'
+            }), 400
+        
+        # Update status to active
+        cursor.execute('''
+            UPDATE formulations
+            SET status = 'active', updated_at = ?
+            WHERE id = ?
+        ''', (datetime.now().isoformat(), id))
+        
+        conn.commit()
+        conn.close()
+        
+        return jsonify({'message': 'Formulation is now active'}), 200
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# ============================================================================
+# DATABASE MIGRATION FOR APPROVAL FIELDS
+# Run this SQL on your database to add the approval workflow fields:
 # ============================================================================
 # RUN APPLICATION
 # ============================================================================
