@@ -46,6 +46,7 @@ export const AuthProvider = ({ children }) => {
     
     // Clear token from storage
     localStorage.removeItem('token');
+    localStorage.removeItem('user');
     
     // Reset state
     setUser(null);
@@ -109,6 +110,7 @@ export const AuthProvider = ({ children }) => {
       
       // Store token
       localStorage.setItem('token', token);
+      localStorage.setItem('user', JSON.stringify(userData));
       
       // Update state
       setUser(userData);

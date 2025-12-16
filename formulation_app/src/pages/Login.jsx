@@ -66,7 +66,7 @@ const Login = () => {
 
     if (result.success) {
       // Get redirect URL from location state, or default to formulations
-      const from = location.state?.from?.pathname || '/formulations';
+      const from = location.state?.from?.pathname || '/dashboard';
       navigate(from, { replace: true });
     } else {
       setError(result.error);

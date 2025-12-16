@@ -1,17 +1,16 @@
 /**
- * Main Application Component
+ * Main Application Component v2.5
  * 
- * Sets up:
- * - Authentication context
- * - Toast notifications
- * - Error boundary
- * - Routing
- * - Protected routes
+ * FIXES:
+ * - Swati Soaps logo links to /dashboard (not /formulations)
+ * - Admin link visible only for owner/admin roles
+ * - User name displays correctly
+ * - Dashboard as default route
  */
 
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
-import { LogOut, Package, Beaker, Loader2 } from 'lucide-react';
+import { LogOut, Package, Beaker, Loader2, Shield, LayoutDashboard } from 'lucide-react';
 
 // Context Providers
 import { AuthProvider, useAuth } from './context/AuthContext';
@@ -20,11 +19,12 @@ import ErrorBoundary from './components/common/ErrorBoundary';
 
 // Pages
 import Login from './pages/Login';
+import Dashboard from './pages/Dashboard';
+import AdminPage from './pages/AdminPage';
 import Ingredients from './pages/Ingredients';
 import Formulations from './pages/Formulations';
 import FormulationDetail from './pages/FormulationDetail';
-import AdminPage from './pages/AdminPage';
-import FormulationEditor from './components/FormulationEditor';
+import FormulationEditor from './pages/FormulationEditor';
 
 // =============================================================================
 // APP HEADER COMPONENT
@@ -35,10 +35,24 @@ function AppHeader() {
   const location = useLocation();
   const { user, logout } = useAuth();
   
+  // Get user role from context or localStorage
+  const userRole = user?.role || 'viewer';
+  const userName = user?.name || user?.email || '';
+  
+  // Check if user can access admin
+  const canAccessAdmin = ['owner', 'admin'].includes(userRole);
+  
+  // Navigation tabs - dynamically include Admin for authorized users
   const tabs = [
+    { path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { path: '/ingredients', label: 'Ingredients', icon: Package },
-    { path: '/formulations', label: 'Formulations', icon: Beaker }
+    { path: '/formulations', label: 'Formulations', icon: Beaker },
   ];
+  
+  // Add Admin tab for owner/admin
+  if (canAccessAdmin) {
+    tabs.push({ path: '/admin', label: 'Admin', icon: Shield });
+  }
 
   const handleLogout = () => {
     logout('User logged out');
@@ -49,10 +63,10 @@ function AppHeader() {
     <header className="bg-white border-b border-gray-200 sticky top-0 z-40">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex justify-between items-center h-16">
-          {/* Logo and Company Name */}
+          {/* Logo and Company Name - Links to Dashboard */}
           <div 
             className="flex items-center cursor-pointer"
-            onClick={() => navigate('/formulations')}
+            onClick={() => navigate('/dashboard')}
           >
             <h1 className="text-xl font-bold text-blue-600">Swati Soaps</h1>
           </div>
@@ -60,7 +74,8 @@ function AppHeader() {
           {/* Tabs Navigation */}
           <nav className="flex space-x-1">
             {tabs.map(({ path, label, icon: Icon }) => {
-              const isActive = location.pathname.startsWith(path);
+              const isActive = location.pathname === path || 
+                (path !== '/dashboard' && location.pathname.startsWith(path));
               return (
                 <button
                   key={path}
@@ -74,7 +89,7 @@ function AppHeader() {
                   `}
                 >
                   <Icon className="w-5 h-5" />
-                  {label}
+                  <span className="hidden sm:inline">{label}</span>
                 </button>
               );
             })}
@@ -82,10 +97,19 @@ function AppHeader() {
 
           {/* User Info + Logout Button */}
           <div className="flex items-center gap-4">
-            {user && (
-              <span className="text-sm text-gray-600 hidden sm:block">
-                {user.name || user.email}
-              </span>
+            {userName && (
+              <div className="hidden sm:flex items-center gap-2">
+                <span className="text-sm text-gray-600">{userName}</span>
+                <span className={`px-2 py-0.5 text-xs font-medium rounded-full ${
+                  userRole === 'admin' ? 'bg-red-100 text-red-700' :
+                  userRole === 'owner' ? 'bg-purple-100 text-purple-700' :
+                  userRole === 'qc' ? 'bg-blue-100 text-blue-700' :
+                  userRole === 'accountant' ? 'bg-green-100 text-green-700' :
+                  'bg-gray-100 text-gray-700'
+                }`}>
+                  {userRole}
+                </span>
+              </div>
             )}
             <button
               onClick={handleLogout}
@@ -137,7 +161,7 @@ function LoadingScreen() {
 // =============================================================================
 
 function ProtectedRoutes() {
-  const { isAuthenticated, isLoading, authError } = useAuth();
+  const { isAuthenticated, isLoading } = useAuth();
   const location = useLocation();
 
   // Show loading while checking authentication
@@ -147,51 +171,50 @@ function ProtectedRoutes() {
 
   // Not authenticated - redirect to login
   if (!isAuthenticated) {
-    // Save the attempted URL for redirecting after login
-    return <Navigate to="/login" state={{ from: location, error: authError }} replace />;
+    return <Navigate to="/login" state={{ from: location }} replace />;
   }
 
-  // Authenticated - render the app
+  // Authenticated - render routes with layout
   return (
     <AppLayout>
       <Routes>
-        <Route path="/" element={<Navigate to="/formulations" replace />} />
+        <Route path="/" element={<Navigate to="/dashboard" replace />} />
+        <Route path="/dashboard" element={<Dashboard />} />
         <Route path="/ingredients" element={<Ingredients />} />
         <Route path="/formulations" element={<Formulations />} />
         <Route path="/formulations/create" element={<FormulationEditor />} />
         <Route path="/formulations/:id" element={<FormulationDetail />} />
         <Route path="/formulations/:id/edit" element={<FormulationEditor />} />
         <Route path="/admin" element={<AdminPage />} />
-        <Route path="*" element={<Navigate to="/formulations" replace />} />
+        <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Routes>
     </AppLayout>
   );
 }
 
 // =============================================================================
-// APP ROUTES
+// APP ROUTES (handles login vs protected)
 // =============================================================================
 
 function AppRoutes() {
   const { isAuthenticated, isLoading } = useAuth();
+  const location = useLocation();
 
-  // Show loading while checking authentication
   if (isLoading) {
     return <LoadingScreen />;
   }
 
   return (
     <Routes>
-      {/* Login route - accessible when not authenticated */}
+      {/* Login route */}
       <Route 
         path="/login" 
         element={
           isAuthenticated 
-            ? <Navigate to="/formulations" replace /> 
+            ? <Navigate to="/dashboard" replace />
             : <Login />
         } 
       />
-      
       {/* All other routes are protected */}
       <Route path="/*" element={<ProtectedRoutes />} />
     </Routes>
@@ -205,13 +228,13 @@ function AppRoutes() {
 function App() {
   return (
     <ErrorBoundary>
-      <ToastProvider>
-        <AuthProvider>
+      <AuthProvider>
+        <ToastProvider>
           <Router>
             <AppRoutes />
           </Router>
-        </AuthProvider>
-      </ToastProvider>
+        </ToastProvider>
+      </AuthProvider>
     </ErrorBoundary>
   );
 }

@@ -24,3 +24,7 @@ nohup.out
 # Temp files
 *.zip
 *.tmp
+
+# SQLite temp files
+*.db-shm
+*.db-wal
