@@ -10,8 +10,12 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   Plus, Search, Filter, Edit2, Trash2, AlertCircle, RefreshCw, 
-  ChevronDown, ChevronRight, Upload, ArrowLeft, Package, FlaskConical
+  ChevronDown, ChevronRight, Upload, ArrowLeft, Package, FlaskConical, Download
 } from 'lucide-react';
+import IngredientAddModal from '../components/IngredientAddModal';
+import IngredientEditModal from '../components/IngredientEditModal';
+import IngredientImportModal from '../components/IngredientImportModal';
+import IngredientExportModal from '../components/IngredientExportModal';
 
 const API_BASE = 'http://165.22.222.87:5000/api';
 
@@ -28,6 +32,7 @@ const Ingredients = () => {
   const [showEditModal, setShowEditModal] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
   const [editingIngredientId, setEditingIngredientId] = useState(null);
+  const [showExportModal, setShowExportModal] = useState(false);
   
   // Filter and view states
   const [searchTerm, setSearchTerm] = useState('');
@@ -194,6 +199,13 @@ const Ingredients = () => {
             >
               <FlaskConical className="w-4 h-4" />
               Formulations
+            </button>
+            <button
+              onClick={() => setShowExportModal(true)}
+              className="px-4 py-2 text-white bg-purple-600 rounded-md hover:bg-purple-700 flex items-center gap-2"
+            >
+              <Download className="w-4 h-4" />
+              Export
             </button>
             <button
               onClick={() => setShowImportModal(true)}
@@ -457,10 +469,39 @@ const Ingredients = () => {
         </div>
       )}
 
-      {/* TODO: Add Modal components when needed */}
-      {/* <IngredientAddModal ... /> */}
-      {/* <IngredientEditModal ... /> */}
-      {/* <IngredientImportModal ... /> */}
+      {/* Modal Components */}
+      {showAddModal && (
+        <IngredientAddModal
+          isOpen={showAddModal}
+          onClose={() => setShowAddModal(false)}
+          onSuccess={() => { setShowAddModal(false); loadData(); }}
+          categories={categories}
+        />
+      )}
+      {showEditModal && editingIngredientId && (
+        <IngredientEditModal
+          isOpen={showEditModal}
+          ingredientId={editingIngredientId}
+          onClose={() => { setShowEditModal(false); setEditingIngredientId(null); }}
+          onSuccess={() => { setShowEditModal(false); setEditingIngredientId(null); loadData(); }}
+          categories={categories}
+        />
+      )}
+      {showImportModal && (
+        <IngredientImportModal
+          isOpen={showImportModal}
+          onClose={() => setShowImportModal(false)}
+          onSuccess={() => { setShowImportModal(false); loadData(); }}
+        />
+      )}
+      
+      {showExportModal && (
+        <IngredientExportModal
+          isOpen={showExportModal}
+          onClose={() => setShowExportModal(false)}
+          categories={categories}
+        />
+      )}
     </div>
   );
 };

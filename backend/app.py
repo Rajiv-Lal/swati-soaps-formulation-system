@@ -1001,6 +1001,61 @@ def compare_versions(id):
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/formulations/<int:id>/benefits', methods=['GET'])
+@jwt_required()
+def get_formulation_benefits(id):
+    """Get marketing benefits for all ingredients in a formulation"""
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            SELECT 
+                i.id as ingredient_id,
+                i.name as ingredient_name,
+                i.inci_name,
+                fi.percentage,
+                im.benefits,
+                im.applications
+            FROM formulation_ingredients fi
+            JOIN ingredients i ON fi.ingredient_id = i.id
+            LEFT JOIN ingredient_marketing im ON i.id = im.ingredient_id
+            WHERE fi.formulation_id = ?
+            ORDER BY fi.percentage DESC
+        ''', (id,))
+        
+        ingredients_benefits = []
+        all_benefits = set()
+        all_applications = set()
+        
+        for row in cursor.fetchall():
+            row_dict = dict_from_row(row)
+            ingredients_benefits.append(row_dict)
+            
+            if row_dict.get('benefits'):
+                for benefit in row_dict['benefits'].split(','):
+                    benefit = benefit.strip()
+                    if benefit:
+                        all_benefits.add(benefit)
+            
+            if row_dict.get('applications'):
+                for app in row_dict['applications'].split(','):
+                    app = app.strip()
+                    if app:
+                        all_applications.add(app)
+        
+        conn.close()
+        
+        return jsonify({
+            'ingredients_benefits': ingredients_benefits,
+            'consolidated_benefits': sorted(list(all_benefits)),
+            'consolidated_applications': sorted(list(all_applications))
+        }), 200
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/api/formulations/<int:id>/versions/<int:version_id>/restore', methods=['POST'])
 @jwt_required()
 def restore_version(id, version_id):

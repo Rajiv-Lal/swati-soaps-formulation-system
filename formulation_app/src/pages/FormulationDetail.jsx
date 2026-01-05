@@ -10,7 +10,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { 
+import { Sparkles, 
   ArrowLeft, Edit2, Trash2, Copy, AlertCircle, RefreshCw,
   FileText, Clock, TestTube, Package, DollarSign, Loader2,
   CheckCircle, Tag
@@ -31,6 +31,8 @@ const FormulationDetail = () => {
   const [error, setError] = useState(null);
   const [activeTab, setActiveTab] = useState('details');
   const [selectedVersion, setSelectedVersion] = useState(null); // Store full version object
+  const [benefits, setBenefits] = useState(null);
+  const [benefitsLoading, setBenefitsLoading] = useState(false);
   const [refreshingPrices, setRefreshingPrices] = useState(false);
   const [duplicating, setDuplicating] = useState(false);
 
@@ -38,7 +40,8 @@ const FormulationDetail = () => {
     { id: 'details', name: 'Details', icon: FileText },
     { id: 'versions', name: 'Version History', icon: Clock },
     { id: 'bom', name: 'Bill of Materials', icon: Package },
-    { id: 'tests', name: 'Test Results', icon: TestTube }
+    { id: 'tests', name: 'Test Results', icon: TestTube },
+    { id: 'benefits', name: 'Benefits', icon: Sparkles }
   ];
 
   const getToken = () => localStorage.getItem('token');
@@ -474,6 +477,107 @@ const FormulationDetail = () => {
     />
   );
 
+  // Load benefits when tab is selected
+  const loadBenefits = async () => {
+    if (benefits) return; // Already loaded
+    setBenefitsLoading(true);
+    try {
+      const response = await fetch(`${API_BASE}/formulations/${id}/benefits`, {
+        headers: { 'Authorization': `Bearer ${getToken()}` }
+      });
+      if (!response.ok) throw new Error('Failed to load benefits');
+      const data = await response.json();
+      setBenefits(data);
+    } catch (err) {
+      console.error('Error loading benefits:', err);
+    } finally {
+      setBenefitsLoading(false);
+    }
+  };
+
+  // Load benefits when tab changes to benefits
+  useEffect(() => {
+    if (activeTab === 'benefits') {
+      loadBenefits();
+    }
+  }, [activeTab]);
+
+  const renderBenefitsTab = () => {
+    if (benefitsLoading) {
+      return (
+        <div className="flex items-center justify-center h-64">
+          <Loader2 className="w-8 h-8 text-blue-600 animate-spin" />
+        </div>
+      );
+    }
+
+    if (!benefits) {
+      return (
+        <div className="bg-white rounded-lg border p-8 text-center text-gray-500">
+          No benefits data available
+        </div>
+      );
+    }
+
+    return (
+      <div className="space-y-6">
+        {/* Consolidated Benefits */}
+        <div className="bg-white rounded-lg border p-6">
+          <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+            <Sparkles className="w-5 h-5 text-purple-600" />
+            Product Benefits
+          </h3>
+          <div className="flex flex-wrap gap-2">
+            {benefits.consolidated_benefits?.map((benefit, idx) => (
+              <span key={idx} className="px-3 py-1 bg-purple-100 text-purple-800 rounded-full text-sm">
+                {benefit}
+              </span>
+            ))}
+          </div>
+        </div>
+
+        {/* Suggested Applications */}
+        <div className="bg-white rounded-lg border p-6">
+          <h3 className="text-lg font-semibold text-gray-900 mb-4">Suggested Applications</h3>
+          <div className="flex flex-wrap gap-2">
+            {benefits.consolidated_applications?.map((app, idx) => (
+              <span key={idx} className="px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-sm">
+                {app}
+              </span>
+            ))}
+          </div>
+        </div>
+
+        {/* Per-Ingredient Benefits */}
+        <div className="bg-white rounded-lg border overflow-hidden">
+          <div className="px-6 py-4 border-b bg-gray-50">
+            <h3 className="font-semibold text-gray-900">Benefits by Ingredient</h3>
+          </div>
+          <div className="divide-y">
+            {benefits.ingredients_benefits?.map((ing) => (
+              <div key={ing.ingredient_id} className="p-4">
+                <div className="flex justify-between items-start mb-2">
+                  <div>
+                    <span className="font-medium text-gray-900">{ing.ingredient_name}</span>
+                    {ing.inci_name && (
+                      <span className="ml-2 text-sm text-gray-500">({ing.inci_name})</span>
+                    )}
+                  </div>
+                  <span className="text-sm text-gray-500">{ing.percentage}%</span>
+                </div>
+                {ing.benefits ? (
+                  <p className="text-sm text-gray-600">{ing.benefits}</p>
+                ) : (
+                  <p className="text-sm text-gray-400 italic">No benefits data available</p>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   // ---------------------------------------------------------------------------
   // LOADING/ERROR STATES
   // ---------------------------------------------------------------------------
@@ -599,6 +703,7 @@ const FormulationDetail = () => {
         {activeTab === 'versions' && renderVersionsTab()}
         {activeTab === 'bom' && renderBOMTab()}
         {activeTab === 'tests' && renderTestsTab()}
+        {activeTab === 'benefits' && renderBenefitsTab()}
       </div>
     </div>
   );
