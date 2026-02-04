@@ -10,7 +10,7 @@
 
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
-import { LogOut, Package, Beaker, Loader2, Shield, LayoutDashboard } from 'lucide-react';
+import { LogOut, Package, Beaker, Loader2, Shield, LayoutDashboard, FlaskConical } from 'lucide-react';
 
 // Context Providers
 import { AuthProvider, useAuth } from './context/AuthContext';
@@ -25,6 +25,7 @@ import Ingredients from './pages/Ingredients';
 import Formulations from './pages/Formulations';
 import FormulationDetail from './pages/FormulationDetail';
 import FormulationEditor from './pages/FormulationEditor';
+import Sandbox from './pages/Sandbox';
 
 // =============================================================================
 // APP HEADER COMPONENT
@@ -47,6 +48,7 @@ function AppHeader() {
     { path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { path: '/ingredients', label: 'Ingredients', icon: Package },
     { path: '/formulations', label: 'Formulations', icon: Beaker },
+    { path: '/sandbox', label: 'Sandbox', icon: FlaskConical },
   ];
   
   // Add Admin tab for owner/admin
@@ -185,6 +187,7 @@ function ProtectedRoutes() {
         <Route path="/formulations/create" element={<FormulationEditor />} />
         <Route path="/formulations/:id" element={<FormulationDetail />} />
         <Route path="/formulations/:id/edit" element={<FormulationEditor />} />
+        <Route path="/sandbox" element={<Sandbox />} />
         <Route path="/admin" element={<AdminPage />} />
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Routes>

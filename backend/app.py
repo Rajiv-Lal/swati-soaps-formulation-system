@@ -6,6 +6,7 @@ Version: 2.2 (Enhanced with Usage Warnings & Estimated Scores)
 
 from flask import Flask, request, jsonify
 from ingredients_api import ingredients_bp
+from sandbox_api import sandbox_bp
 from flask_cors import CORS
 from flask_jwt_extended import JWTManager, create_access_token, jwt_required, get_jwt_identity
 from datetime import datetime, timedelta
@@ -29,6 +30,7 @@ app.config['DATABASE'] = os.environ.get('DATABASE_PATH', 'swati_soaps.db')
 
 # Initialize extensions
 app.register_blueprint(ingredients_bp)
+app.register_blueprint(sandbox_bp)
 CORS(app, origins=["http://localhost:3000", "http://165.22.222.87:3000", "http://165.22.222.87"], supports_credentials=True)
 jwt = JWTManager(app)
 
