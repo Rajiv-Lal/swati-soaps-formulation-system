@@ -19,8 +19,8 @@ import axios from 'axios';
 // CONFIGURATION
 // =============================================================================
 
-// API base URL - empty string means requests go to same origin (nginx proxies to Flask)
-const API_BASE_URL = '/api';
+// API base URL - use localhost for local development
+const API_BASE_URL = 'http://localhost:5000/api';
 
 // Create axios instance with default config
 const api = axios.create({

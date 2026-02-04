@@ -798,13 +798,283 @@ def export_ingredients_csv():
         
         output.seek(0)
         filename = "ingredients_" + dt.now().strftime('%Y%m%d_%H%M%S') + ".csv"
-        
+
         return Response(
             output.getvalue(),
             mimetype='text/csv',
             headers={'Content-Disposition': 'attachment; filename=' + filename}
         )
-        
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# ============================================================================
+# IMPORT INGREDIENTS FROM CSV/EXCEL (Tally Integration)
+# ============================================================================
+
+@ingredients_bp.route('/api/ingredients/import', methods=['POST'])
+@jwt_required()
+def import_ingredients():
+    """
+    Import ingredients from CSV or Excel file.
+
+    Two-step process:
+    1. Preview mode (default): Returns list of changes for user review
+    2. Confirm mode: Actually applies the selected updates
+
+    Query params:
+    - preview=true (default): Show changes without applying
+    - confirm=true: Apply the updates
+
+    For Tally integration, use price update mode with headers:
+    name,landed_cost_net_gst (or name,price)
+
+    Matching is done by ingredient name (case-insensitive).
+    """
+    try:
+        import csv
+        import io
+        from datetime import datetime as dt
+
+        if 'file' not in request.files:
+            return jsonify({'error': 'No file provided'}), 400
+
+        file = request.files['file']
+        if not file.filename:
+            return jsonify({'error': 'No file selected'}), 400
+
+        # Check file type
+        filename = file.filename.lower()
+        is_csv = filename.endswith('.csv')
+        is_excel = filename.endswith('.xlsx') or filename.endswith('.xls')
+
+        if not is_csv and not is_excel:
+            return jsonify({'error': 'File must be CSV (.csv) or Excel (.xlsx, .xls)'}), 400
+
+        # Parse file
+        rows = []
+        headers = []
+
+        if is_csv:
+            # Read CSV (auto-detect delimiter: comma or tab)
+            content = file.read().decode('utf-8-sig')  # Handle BOM
+
+            # Detect delimiter from first line
+            first_line = content.split('\n')[0] if content else ''
+            delimiter = '\t' if '\t' in first_line else ','
+
+            reader = csv.DictReader(io.StringIO(content), delimiter=delimiter)
+            headers = [h.lower().strip() for h in reader.fieldnames] if reader.fieldnames else []
+            # Normalize row keys to lowercase to match headers
+            rows = [{k.lower().strip(): v for k, v in row.items()} for row in reader]
+        else:
+            # Read Excel
+            try:
+                import openpyxl
+                wb = openpyxl.load_workbook(file, data_only=True)
+                ws = wb.active
+
+                # Get headers from first row
+                header_row = next(ws.iter_rows(min_row=1, max_row=1, values_only=True))
+                headers = [str(h).lower().strip() if h else '' for h in header_row]
+
+                # Get data rows
+                for row in ws.iter_rows(min_row=2, values_only=True):
+                    row_dict = {headers[i]: row[i] for i in range(len(headers)) if i < len(row)}
+                    rows.append(row_dict)
+            except ImportError:
+                return jsonify({'error': 'openpyxl not installed. Use CSV format instead.'}), 400
+
+        if not rows:
+            return jsonify({'error': 'File is empty or could not be parsed'}), 400
+
+        # Validate required headers
+        # Normalize header names (handle variations)
+        header_mapping = {
+            'name': ['name', 'ingredient', 'ingredient_name', 'item', 'item_name', 'material', 'material_name'],
+            'landed_cost_net_gst': ['landed_cost_net_gst', 'cost', 'price', 'rate', 'cost_per_kg', 'price_per_kg', 'landed_cost', 'amount', 'cost (rs/kg)', 'cost(rs/kg)', 'price (rs/kg)', 'price(rs/kg)'],
+            'category': ['category', 'category_name', 'group'],
+            'inci_name': ['inci_name', 'inci', 'inci name'],
+            'cas_number': ['cas_number', 'cas', 'cas no', 'cas_no'],
+            'supplier': ['supplier', 'supplier_name', 'vendor'],
+            'unit_of_measure': ['unit_of_measure', 'unit', 'uom'],
+            'stock_status': ['stock_status', 'stock', 'status']
+        }
+
+        # Map actual headers to standard names
+        actual_headers = {}
+        for standard, variations in header_mapping.items():
+            for h in headers:
+                if h in variations:
+                    actual_headers[standard] = h
+                    break
+
+        if 'name' not in actual_headers:
+            return jsonify({
+                'error': 'Missing required column: name',
+                'found_headers': headers,
+                'expected': 'name (or ingredient, item, material)'
+            }), 400
+
+        # Determine mode: price-only or full import
+        price_only_mode = 'landed_cost_net_gst' in actual_headers and 'category' not in actual_headers
+
+        # Check if this is preview mode (default) or confirm mode
+        is_preview = request.form.get('confirm', 'false').lower() != 'true'
+
+        conn = get_db()
+        cursor = conn.cursor()
+
+        # Get existing ingredients with current prices
+        cursor.execute('SELECT id, name, LOWER(name) as name_lower, landed_cost_net_gst FROM ingredients')
+        existing_rows = cursor.fetchall()
+        existing = {row['name_lower']: {'id': row['id'], 'name': row['name'], 'current_price': row['landed_cost_net_gst']} for row in existing_rows}
+
+        # Get category mapping (for full import)
+        cursor.execute('SELECT id, LOWER(name) as name FROM categories')
+        categories = {row['name']: row['id'] for row in cursor.fetchall()}
+
+        # Get supplier mapping (for full import)
+        cursor.execute('SELECT id, LOWER(name) as name FROM suppliers')
+        suppliers = {row['name']: row['id'] for row in cursor.fetchall()}
+
+        # Process rows - collect changes
+        changes = []
+        new_items = []
+        skipped = 0
+        errors = []
+
+        for i, row in enumerate(rows, start=2):  # Start at 2 (header is row 1)
+            try:
+                # Get ingredient name
+                name_col = actual_headers['name']
+                name = str(row.get(name_col, '')).strip()
+                if not name:
+                    skipped += 1
+                    continue
+
+                name_lower = name.lower()
+
+                # Get price if available
+                new_price = None
+                if 'landed_cost_net_gst' in actual_headers:
+                    price_col = actual_headers['landed_cost_net_gst']
+                    price_val = row.get(price_col)
+                    if price_val is not None and str(price_val).strip():
+                        try:
+                            new_price = float(str(price_val).replace(',', '').strip())
+                        except ValueError:
+                            errors.append(f"Row {i}: Invalid price '{price_val}' for '{name}'")
+                            continue
+
+                if name_lower in existing:
+                    # Existing ingredient - check for price change
+                    current = existing[name_lower]
+                    current_price = current['current_price'] or 0
+
+                    if new_price is not None and abs(new_price - current_price) > 0.001:
+                        change_pct = ((new_price - current_price) / current_price * 100) if current_price > 0 else 0
+                        changes.append({
+                            'id': current['id'],
+                            'name': current['name'],
+                            'current_price': round(current_price, 2),
+                            'new_price': round(new_price, 2),
+                            'change': round(new_price - current_price, 2),
+                            'change_percent': round(change_pct, 1),
+                            'row': i
+                        })
+                    else:
+                        skipped += 1
+                else:
+                    # New ingredient
+                    if price_only_mode:
+                        errors.append(f"Row {i}: Ingredient '{name}' not found")
+                        skipped += 1
+                    else:
+                        # Collect for new item creation
+                        new_items.append({
+                            'name': name,
+                            'new_price': new_price or 0,
+                            'category': row.get(actual_headers.get('category', ''), '') if 'category' in actual_headers else None,
+                            'row': i
+                        })
+
+            except Exception as e:
+                errors.append(f"Row {i}: {str(e)}")
+
+        # PREVIEW MODE - return changes for user review
+        if is_preview:
+            conn.close()
+            return jsonify({
+                'mode': 'preview',
+                'price_update_mode': price_only_mode,
+                'changes': changes,
+                'new_items': new_items[:50],  # Limit preview
+                'skipped': skipped,
+                'errors': len(errors),
+                'error_details': errors[:10],
+                'summary': {
+                    'total_changes': len(changes),
+                    'total_new': len(new_items),
+                    'price_increases': len([c for c in changes if c['change'] > 0]),
+                    'price_decreases': len([c for c in changes if c['change'] < 0])
+                }
+            }), 200
+
+        # CONFIRM MODE - apply the updates
+        # Get list of IDs to update from form data
+        selected_ids = request.form.getlist('selected_ids')
+        if selected_ids:
+            # Only update selected items
+            selected_ids = [int(x) for x in selected_ids if x.isdigit()]
+            changes = [c for c in changes if c['id'] in selected_ids]
+
+        updated = 0
+        imported = 0
+
+        # Apply price updates
+        for change in changes:
+            cursor.execute('''
+                UPDATE ingredients
+                SET landed_cost_net_gst = ?, updated_at = ?
+                WHERE id = ?
+            ''', (change['new_price'], dt.now().isoformat(), change['id']))
+            updated += 1
+
+        # Create new items (full import mode only)
+        if not price_only_mode:
+            for item in new_items:
+                category_id = 1
+                if item.get('category'):
+                    cat_lower = str(item['category']).lower()
+                    category_id = categories.get(cat_lower, 1)
+
+                cursor.execute('''
+                    INSERT INTO ingredients (
+                        name, category_id, landed_cost_net_gst,
+                        unit_of_measure, stock_status, created_at, updated_at
+                    ) VALUES (?, ?, ?, 'kg', 'in_stock', ?, ?)
+                ''', (
+                    item['name'], category_id, item['new_price'],
+                    dt.now().isoformat(), dt.now().isoformat()
+                ))
+                imported += 1
+
+        conn.commit()
+        conn.close()
+
+        result = {
+            'mode': 'confirmed',
+            'message': 'Import completed',
+            'updated': updated,
+            'imported': imported,
+            'skipped': skipped,
+            'errors': len(errors)
+        }
+
+        return jsonify(result), 200
+
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 

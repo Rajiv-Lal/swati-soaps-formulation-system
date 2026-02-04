@@ -1,12 +1,14 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { Plus, Trash2, Save, X, AlertCircle, Check, AlertTriangle } from 'lucide-react';
 
-const API_BASE = 'http://165.22.222.87:5000/api';
+const API_BASE = 'http://localhost:5000/api';
 
 const FormulationEditor = () => {
   const navigate = useNavigate();
   const { id } = useParams();
+  const [searchParams] = useSearchParams();
+  const versionId = searchParams.get('version');
   const isEditMode = Boolean(id);
 
   const [formData, setFormData] = useState({
@@ -33,6 +35,7 @@ const FormulationEditor = () => {
   const [regulatoryWarnings, setRegulatoryWarnings] = useState([]);
   const [showWarningDialog, setShowWarningDialog] = useState(false);
   const [savedFormulationId, setSavedFormulationId] = useState(null);
+  const [loadedVersionNumber, setLoadedVersionNumber] = useState(null);
 
   const getToken = () => localStorage.getItem('token');
 
@@ -59,7 +62,8 @@ const FormulationEditor = () => {
         setProductTypes(ptData.product_types || []);
 
         if (isEditMode) {
-          const formRes = await fetch(`${API_BASE}/formulations/${id}`, { headers });
+          const versionParam = versionId ? `?version_id=${versionId}` : '';
+          const formRes = await fetch(`${API_BASE}/formulations/${id}${versionParam}`, { headers });
           const formResult = await formRes.json();
           
           if (formResult.formulation) {
@@ -72,6 +76,13 @@ const FormulationEditor = () => {
               status: f.status || 'draft',
               notes: f.notes || ''
             });
+
+            // Track if editing an old version
+            if (f.loaded_version_number) {
+              setLoadedVersionNumber(f.loaded_version_number);
+            } else {
+              setLoadedVersionNumber(null);
+            }
 
             if (f.ingredients && f.ingredients.length > 0) {
               const mappedIngredients = f.ingredients.map(ing => {
@@ -95,7 +106,7 @@ const FormulationEditor = () => {
       }
     };
     fetchData();
-  }, [id, isEditMode]);
+  }, [id, isEditMode, versionId]);
 
   const ingredientsByCategory = useMemo(() => {
     const grouped = {};
@@ -249,7 +260,15 @@ const FormulationEditor = () => {
   return (
     <div className="max-w-5xl mx-auto p-6">
       <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">{isEditMode ? 'Edit Formulation' : 'Create New Formulation'}</h1>
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">{isEditMode ? 'Edit Formulation' : 'Create New Formulation'}</h1>
+          {loadedVersionNumber && (
+            <div className="mt-2 inline-flex items-center gap-2 px-3 py-1 bg-amber-100 text-amber-800 rounded-full text-sm">
+              <AlertCircle className="w-4 h-4" />
+              Editing version {loadedVersionNumber} - Save as new version to preserve changes
+            </div>
+          )}
+        </div>
         <p className="text-gray-500 mt-1">{isEditMode ? 'Modify the formulation details below' : 'Enter the details for your new formulation'}</p>
       </div>
 

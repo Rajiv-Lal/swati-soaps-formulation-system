@@ -18,7 +18,7 @@ import {
   Package, ArrowLeft, Send, CheckCircle, Clock
 } from 'lucide-react';
 
-const API_BASE = 'http://165.22.222.87:5000/api';
+const API_BASE = 'http://localhost:5000/api';
 const CACHE_KEY = 'formulation_draft';
 
 const FormulationEditor = () => {

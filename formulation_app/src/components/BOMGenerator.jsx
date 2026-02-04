@@ -16,7 +16,7 @@ import {
   Loader2, Package, TrendingUp, Tag, Lock
 } from 'lucide-react';
 
-const API_BASE = 'http://165.22.222.87:5000/api';
+const API_BASE = 'http://localhost:5000/api';
 
 // Format number with Indian comma system (₹1,23,456.78)
 const formatCurrency = (num) => {

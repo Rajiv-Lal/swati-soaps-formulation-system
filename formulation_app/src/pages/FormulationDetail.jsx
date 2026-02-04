@@ -10,16 +10,17 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Sparkles, 
+import { Sparkles,
   ArrowLeft, Edit2, Trash2, Copy, AlertCircle, RefreshCw,
   FileText, Clock, TestTube, Package, DollarSign, Loader2,
-  CheckCircle, Tag
+  CheckCircle, Tag, List, BarChart3
 } from 'lucide-react';
 import BOMGenerator from '../components/BOMGenerator';
 import VersionTimeline from '../components/VersionTimeline';
+import VersionGraphs from '../components/VersionGraphs';
 import TestResults from '../components/TestResults';
 
-const API_BASE = 'http://165.22.222.87:5000/api';
+const API_BASE = 'http://localhost:5000/api';
 
 const FormulationDetail = () => {
   const { id } = useParams();
@@ -35,6 +36,7 @@ const FormulationDetail = () => {
   const [benefitsLoading, setBenefitsLoading] = useState(false);
   const [refreshingPrices, setRefreshingPrices] = useState(false);
   const [duplicating, setDuplicating] = useState(false);
+  const [versionViewMode, setVersionViewMode] = useState('timeline'); // 'timeline' or 'graph'
 
   const tabs = [
     { id: 'details', name: 'Details', icon: FileText },
@@ -456,11 +458,44 @@ const FormulationDetail = () => {
   );
 
   const renderVersionsTab = () => (
-    <VersionTimeline 
-      formulation={formulation} 
-      onVersionSelect={handleVersionSelect}
-      selectedVersionId={selectedVersion?.id}
-    />
+    <div className="space-y-4">
+      {/* Sub-tab toggle */}
+      <div className="flex items-center gap-2 bg-gray-100 p-1 rounded-lg w-fit">
+        <button
+          onClick={() => setVersionViewMode('timeline')}
+          className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+            versionViewMode === 'timeline'
+              ? 'bg-white text-gray-900 shadow-sm'
+              : 'text-gray-600 hover:text-gray-900'
+          }`}
+        >
+          <List className="w-4 h-4" />
+          Timeline View
+        </button>
+        <button
+          onClick={() => setVersionViewMode('graph')}
+          className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+            versionViewMode === 'graph'
+              ? 'bg-white text-gray-900 shadow-sm'
+              : 'text-gray-600 hover:text-gray-900'
+          }`}
+        >
+          <BarChart3 className="w-4 h-4" />
+          Graph View
+        </button>
+      </div>
+
+      {/* Content based on view mode */}
+      {versionViewMode === 'timeline' ? (
+        <VersionTimeline
+          formulation={formulation}
+          onVersionSelect={handleVersionSelect}
+          selectedVersionId={selectedVersion?.id}
+        />
+      ) : (
+        <VersionGraphs formulation={formulation} />
+      )}
+    </div>
   );
 
   const renderBOMTab = () => (
@@ -482,12 +517,26 @@ const FormulationDetail = () => {
     if (benefits) return; // Already loaded
     setBenefitsLoading(true);
     try {
-      const response = await fetch(`${API_BASE}/formulations/${id}/benefits`, {
-        headers: { 'Authorization': `Bearer ${getToken()}` }
+      // Load both endpoints in parallel
+      const [marketingRes, rawRes] = await Promise.all([
+        fetch(`${API_BASE}/formulations/${id}/marketing-benefits`, {
+          headers: { 'Authorization': `Bearer ${getToken()}` }
+        }),
+        fetch(`${API_BASE}/formulations/${id}/benefits`, {
+          headers: { 'Authorization': `Bearer ${getToken()}` }
+        })
+      ]);
+
+      const marketingData = marketingRes.ok ? await marketingRes.json() : {};
+      const rawData = rawRes.ok ? await rawRes.json() : {};
+
+      setBenefits({
+        marketing_statements: marketingData.marketing_statements || [],
+        raw_benefits: marketingData.raw_benefits || rawData.consolidated_benefits || [],
+        ingredients_benefits: rawData.ingredients_benefits || [],
+        total_ingredients: marketingData.total_ingredients || rawData.total_ingredients || 0,
+        message: marketingData.message
       });
-      if (!response.ok) throw new Error('Failed to load benefits');
-      const data = await response.json();
-      setBenefits(data);
     } catch (err) {
       console.error('Error loading benefits:', err);
     } finally {
@@ -519,34 +568,76 @@ const FormulationDetail = () => {
       );
     }
 
+    const totalIngredients = benefits.total_ingredients || benefits.ingredients_benefits?.length || 0;
+
     return (
       <div className="space-y-6">
-        {/* Consolidated Benefits */}
+        {/* Marketing Benefit Statements */}
         <div className="bg-white rounded-lg border p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+          <h3 className="text-lg font-semibold text-gray-900 mb-2 flex items-center gap-2">
             <Sparkles className="w-5 h-5 text-purple-600" />
             Product Benefits
           </h3>
-          <div className="flex flex-wrap gap-2">
-            {benefits.consolidated_benefits?.map((benefit, idx) => (
-              <span key={idx} className="px-3 py-1 bg-purple-100 text-purple-800 rounded-full text-sm">
-                {benefit}
-              </span>
-            ))}
-          </div>
+          {benefits.message && (
+            <p className="text-sm text-amber-600 mb-3">{benefits.message}</p>
+          )}
+
+          {benefits.marketing_statements?.length > 0 ? (
+            <ul className="space-y-3">
+              {benefits.marketing_statements.map((statement, idx) => (
+                <li key={idx} className="flex items-start gap-3">
+                  <span className="flex-shrink-0 w-6 h-6 rounded-full bg-purple-100 text-purple-700 flex items-center justify-center text-sm font-medium">
+                    {idx + 1}
+                  </span>
+                  <span className="text-gray-800 leading-relaxed">{statement}</span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-gray-400 italic">No benefit statements available</p>
+          )}
         </div>
 
-        {/* Suggested Applications */}
-        <div className="bg-white rounded-lg border p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">Suggested Applications</h3>
-          <div className="flex flex-wrap gap-2">
-            {benefits.consolidated_applications?.map((app, idx) => (
-              <span key={idx} className="px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-sm">
-                {app}
-              </span>
-            ))}
-          </div>
-        </div>
+        {/* Raw Benefits - Collapsed by default */}
+        {benefits.raw_benefits?.length > 0 && (
+          <details className="bg-white rounded-lg border overflow-hidden">
+            <summary className="px-6 py-4 cursor-pointer hover:bg-gray-50 font-medium text-gray-700">
+              View Raw Ingredient Benefits ({benefits.raw_benefits.length} unique benefits from {totalIngredients} ingredients)
+            </summary>
+            <div className="px-6 pb-4">
+              <div className="flex flex-wrap gap-2 mt-2">
+                {benefits.raw_benefits.map((item, idx) => {
+                  const benefit = typeof item === 'string' ? item : item.benefit;
+                  const frequency = typeof item === 'object' ? item.frequency : 1;
+                  const isHighFreq = frequency >= Math.ceil(totalIngredients / 2);
+                  const isMedFreq = frequency >= 2;
+
+                  return (
+                    <span
+                      key={idx}
+                      className={`px-3 py-1.5 rounded-full text-sm flex items-center gap-1.5 ${
+                        isHighFreq
+                          ? 'bg-purple-600 text-white font-medium'
+                          : isMedFreq
+                            ? 'bg-purple-200 text-purple-900'
+                            : 'bg-purple-100 text-purple-800'
+                      }`}
+                    >
+                      {benefit}
+                      {frequency > 1 && (
+                        <span className={`text-xs px-1.5 py-0.5 rounded-full ${
+                          isHighFreq ? 'bg-purple-500' : 'bg-purple-300'
+                        }`}>
+                          {frequency}
+                        </span>
+                      )}
+                    </span>
+                  );
+                })}
+              </div>
+            </div>
+          </details>
+        )}
 
         {/* Per-Ingredient Benefits */}
         <div className="bg-white rounded-lg border overflow-hidden">

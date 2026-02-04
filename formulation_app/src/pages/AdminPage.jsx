@@ -17,7 +17,7 @@ import {
   Send, RefreshCw, UserCheck, UserX
 } from 'lucide-react';
 
-const API_BASE = 'http://165.22.222.87:5000/api';
+const API_BASE = 'http://localhost:5000/api';
 
 const ROLES = [
   { value: 'viewer', label: 'Viewer', description: 'View only, no edit rights' },

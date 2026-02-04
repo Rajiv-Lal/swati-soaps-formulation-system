@@ -15,7 +15,7 @@ import {
   Loader2, RefreshCw, Beaker, Activity, Calculator
 } from 'lucide-react';
 
-const API_BASE = 'http://165.22.222.87:5000/api';
+const API_BASE = 'http://localhost:5000/api';
 
 const TestResults = ({ formulation, selectedVersion = null }) => {
   const [tests, setTests] = useState([]);

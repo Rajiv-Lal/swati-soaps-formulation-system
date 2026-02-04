@@ -13,6 +13,11 @@ import sqlite3
 import json
 import os
 from functools import wraps
+from dotenv import load_dotenv
+import anthropic
+
+# Load environment variables from .env file
+load_dotenv()
 
 app = Flask(__name__)
 
@@ -220,11 +225,13 @@ def get_formulations():
 @app.route('/api/formulations/<int:id>', methods=['GET'])
 @jwt_required()
 def get_formulation(id):
-    """Get single formulation with full details"""
+    """Get single formulation with full details. Optionally load specific version."""
     try:
+        version_id = request.args.get('version_id', type=int)
+
         conn = get_db()
         cursor = conn.cursor()
-        
+
         cursor.execute('''
             SELECT f.*, pt.name as product_type_name, u.full_name as created_by_name
             FROM formulations f
@@ -232,28 +239,88 @@ def get_formulation(id):
             LEFT JOIN users u ON f.created_by = u.id
             WHERE f.id = ?
         ''', (id,))
-        
+
         formulation = cursor.fetchone()
-        
+
         if not formulation:
             conn.close()
             return jsonify({'error': 'Formulation not found'}), 404
-        
+
         result = dict_from_row(formulation)
-        
-        # Get ingredients for current version
-        cursor.execute('''
-            SELECT fi.*, i.name as ingredient_name, i.landed_cost_net_gst,
-                   c.name as category_name
-            FROM formulation_ingredients fi
-            JOIN ingredients i ON fi.ingredient_id = i.id
-            LEFT JOIN categories c ON i.category_id = c.id
-            WHERE fi.formulation_id = ?
-            ORDER BY i.name
-        ''', (id,))
-        
-        result['ingredients'] = [dict_from_row(row) for row in cursor.fetchall()]
-        
+
+        # If version_id provided, load from version snapshot
+        if version_id:
+            cursor.execute('''
+                SELECT fv.*, u.full_name as created_by_name
+                FROM formulation_versions fv
+                LEFT JOIN users u ON fv.created_by = u.id
+                WHERE fv.id = ? AND fv.formulation_id = ?
+            ''', (version_id, id))
+            version = cursor.fetchone()
+
+            if version:
+                result['loaded_version_id'] = version_id
+                result['loaded_version_number'] = version['version_number']
+
+                # Parse ingredients from snapshot
+                snapshot = json.loads(version['ingredients_snapshot']) if version['ingredients_snapshot'] else {}
+                snapshot_ingredients = snapshot.get('ingredients', [])
+
+                # Get grammage from snapshot if available
+                if 'grammage' in snapshot:
+                    result['grammage'] = snapshot['grammage']
+                if 'pack_count' in snapshot:
+                    result['pack_count'] = snapshot['pack_count']
+
+                # Enrich snapshot ingredients with current ingredient details
+                enriched_ingredients = []
+                for snap_ing in snapshot_ingredients:
+                    cursor.execute('''
+                        SELECT i.name as ingredient_name, i.landed_cost_net_gst,
+                               c.name as category_name
+                        FROM ingredients i
+                        LEFT JOIN categories c ON i.category_id = c.id
+                        WHERE i.id = ?
+                    ''', (snap_ing['ingredient_id'],))
+                    ing_details = cursor.fetchone()
+
+                    enriched_ing = {
+                        'ingredient_id': snap_ing['ingredient_id'],
+                        'percentage': snap_ing['percentage'],
+                        'quantity_grams': snap_ing.get('quantity_grams'),
+                        'cost_per_piece': snap_ing.get('cost_per_piece'),
+                        'ingredient_name': ing_details['ingredient_name'] if ing_details else f"Ingredient #{snap_ing['ingredient_id']}",
+                        'landed_cost_net_gst': ing_details['landed_cost_net_gst'] if ing_details else 0,
+                        'category_name': ing_details['category_name'] if ing_details else None
+                    }
+                    enriched_ingredients.append(enriched_ing)
+
+                result['ingredients'] = enriched_ingredients
+            else:
+                # Version not found, fall back to current
+                cursor.execute('''
+                    SELECT fi.*, i.name as ingredient_name, i.landed_cost_net_gst,
+                           c.name as category_name
+                    FROM formulation_ingredients fi
+                    JOIN ingredients i ON fi.ingredient_id = i.id
+                    LEFT JOIN categories c ON i.category_id = c.id
+                    WHERE fi.formulation_id = ?
+                    ORDER BY i.name
+                ''', (id,))
+                result['ingredients'] = [dict_from_row(row) for row in cursor.fetchall()]
+        else:
+            # Get ingredients for current version
+            cursor.execute('''
+                SELECT fi.*, i.name as ingredient_name, i.landed_cost_net_gst,
+                       c.name as category_name
+                FROM formulation_ingredients fi
+                JOIN ingredients i ON fi.ingredient_id = i.id
+                LEFT JOIN categories c ON i.category_id = c.id
+                WHERE fi.formulation_id = ?
+                ORDER BY i.name
+            ''', (id,))
+            result['ingredients'] = [dict_from_row(row) for row in cursor.fetchall()]
+
         # Get benefits
         cursor.execute('''
             SELECT bc.id, bc.name
@@ -500,23 +567,9 @@ def update_formulation(id):
                 conn.close()
                 return jsonify({'error': f'Percentages must sum to 100% (currently {total_percentage:.2f}%)'}), 400
         
-        # Get current ingredients to check for changes
+        # Only create new version if user explicitly requests it
         create_new_version = data.get('create_new_version', False)
-        
-        if ingredients and not create_new_version:
-            # Auto-detect if ingredients changed
-            cursor.execute('''
-                SELECT ingredient_id, percentage
-                FROM formulation_ingredients
-                WHERE formulation_id = ?
-            ''', (id,))
-            
-            old_ingredients = {row['ingredient_id']: float(row['percentage']) for row in cursor.fetchall()}
-            new_ingredients = {ing['ingredient_id']: float(ing['percentage']) for ing in ingredients}
-            
-            if old_ingredients != new_ingredients:
-                create_new_version = True
-        
+
         # Calculate costs and validate ingredients
         total_cost = 0
         grammage = float(data.get('grammage', existing['grammage']))
@@ -1025,33 +1078,175 @@ def get_formulation_benefits(id):
         ''', (id,))
         
         ingredients_benefits = []
-        all_benefits = set()
-        all_applications = set()
-        
+        benefit_counts = {}  # Track frequency of each benefit
+        application_counts = {}  # Track frequency of each application
+
         for row in cursor.fetchall():
             row_dict = dict_from_row(row)
             ingredients_benefits.append(row_dict)
-            
+
             if row_dict.get('benefits'):
                 for benefit in row_dict['benefits'].split(','):
-                    benefit = benefit.strip()
+                    benefit = benefit.strip().lower()  # Normalize to lowercase
                     if benefit:
-                        all_benefits.add(benefit)
-            
+                        # Capitalize for display
+                        display_benefit = benefit.capitalize()
+                        benefit_counts[display_benefit] = benefit_counts.get(display_benefit, 0) + 1
+
             if row_dict.get('applications'):
                 for app in row_dict['applications'].split(','):
-                    app = app.strip()
+                    app = app.strip().lower()
                     if app:
-                        all_applications.add(app)
-        
+                        display_app = app.capitalize()
+                        application_counts[display_app] = application_counts.get(display_app, 0) + 1
+
         conn.close()
-        
+
+        # Sort by frequency (highest first), then alphabetically
+        sorted_benefits = sorted(
+            benefit_counts.items(),
+            key=lambda x: (-x[1], x[0])  # -count for descending, then name
+        )
+        sorted_applications = sorted(
+            application_counts.items(),
+            key=lambda x: (-x[1], x[0])
+        )
+
         return jsonify({
             'ingredients_benefits': ingredients_benefits,
-            'consolidated_benefits': sorted(list(all_benefits)),
-            'consolidated_applications': sorted(list(all_applications))
+            'consolidated_benefits': [
+                {'benefit': b, 'frequency': c} for b, c in sorted_benefits
+            ],
+            'consolidated_applications': [
+                {'application': a, 'frequency': c} for a, c in sorted_applications
+            ],
+            'total_ingredients': len(ingredients_benefits)
         }), 200
         
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/formulations/<int:id>/marketing-benefits', methods=['GET'])
+@jwt_required()
+def get_marketing_benefits(id):
+    """Generate marketing benefit statements using Claude API"""
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+
+        # Get formulation name
+        cursor.execute('SELECT product_name FROM formulations WHERE id = ?', (id,))
+        formulation = cursor.fetchone()
+        if not formulation:
+            conn.close()
+            return jsonify({'error': 'Formulation not found'}), 404
+
+        product_name = formulation['product_name']
+
+        # Get ingredients with their benefits
+        cursor.execute('''
+            SELECT
+                i.name as ingredient_name,
+                fi.percentage,
+                im.benefits
+            FROM formulation_ingredients fi
+            JOIN ingredients i ON fi.ingredient_id = i.id
+            LEFT JOIN ingredient_marketing im ON i.id = im.ingredient_id
+            WHERE fi.formulation_id = ?
+            ORDER BY fi.percentage DESC
+        ''', (id,))
+
+        # Collect benefits with frequency
+        benefit_counts = {}
+        ingredients_list = []
+
+        for row in cursor.fetchall():
+            row_dict = dict_from_row(row)
+            ingredients_list.append(row_dict['ingredient_name'])
+
+            if row_dict.get('benefits'):
+                for benefit in row_dict['benefits'].split(','):
+                    benefit = benefit.strip().lower()
+                    if benefit:
+                        display_benefit = benefit.capitalize()
+                        benefit_counts[display_benefit] = benefit_counts.get(display_benefit, 0) + 1
+
+        conn.close()
+
+        if not benefit_counts:
+            return jsonify({
+                'marketing_statements': [],
+                'message': 'No benefits data available for ingredients'
+            }), 200
+
+        # Sort benefits by frequency
+        sorted_benefits = sorted(
+            benefit_counts.items(),
+            key=lambda x: (-x[1], x[0])
+        )
+
+        # Prepare benefits text for Claude
+        benefits_text = "\n".join([
+            f"- {benefit} (appears in {count} ingredient{'s' if count > 1 else ''})"
+            for benefit, count in sorted_benefits
+        ])
+
+        # Check for API key
+        api_key = os.environ.get('ANTHROPIC_API_KEY')
+        if not api_key:
+            # Return raw benefits if no API key
+            return jsonify({
+                'marketing_statements': [b for b, c in sorted_benefits[:10]],
+                'raw_benefits': [{'benefit': b, 'frequency': c} for b, c in sorted_benefits],
+                'message': 'ANTHROPIC_API_KEY not set - returning raw benefits'
+            }), 200
+
+        # Call Claude API
+        client = anthropic.Anthropic(api_key=api_key)
+
+        prompt = f"""Based on the following ingredient benefits for a soap product, generate 5-7 clear, factual marketing benefit statements.
+
+Product: {product_name}
+Key Ingredients: {', '.join(ingredients_list[:8])}
+
+Ingredient Benefits (ranked by frequency - benefits appearing in more ingredients are more significant):
+{benefits_text}
+
+Guidelines:
+- Write clear, factual statements without hyperbole
+- Avoid words like "revolutionary", "miracle", "amazing", "best"
+- Focus on what the product actually does for skin
+- Prioritize benefits that appear in multiple ingredients
+- Each statement should be 1 sentence, under 15 words
+- Use simple language a consumer would understand
+
+Return ONLY the benefit statements, one per line, no numbering or bullets."""
+
+        message = client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=500,
+            messages=[
+                {"role": "user", "content": prompt}
+            ]
+        )
+
+        # Parse response
+        response_text = message.content[0].text
+        statements = [s.strip() for s in response_text.strip().split('\n') if s.strip()]
+
+        return jsonify({
+            'marketing_statements': statements,
+            'raw_benefits': [{'benefit': b, 'frequency': c} for b, c in sorted_benefits],
+            'total_ingredients': len(ingredients_list),
+            'product_name': product_name
+        }), 200
+
+    except anthropic.APIError as e:
+        return jsonify({
+            'error': f'Claude API error: {str(e)}',
+            'raw_benefits': [{'benefit': b, 'frequency': c} for b, c in sorted_benefits] if 'sorted_benefits' in locals() else []
+        }), 500
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 

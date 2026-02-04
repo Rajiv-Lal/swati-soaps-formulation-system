@@ -16,7 +16,7 @@ import {
   Activity, Calendar
 } from 'lucide-react';
 
-const API_BASE = 'http://165.22.222.87:5000/api';
+const API_BASE = 'http://localhost:5000/api';
 
 const Dashboard = () => {
   const navigate = useNavigate();

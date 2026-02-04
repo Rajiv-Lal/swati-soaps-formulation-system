@@ -17,7 +17,7 @@ import IngredientEditModal from '../components/IngredientEditModal';
 import IngredientImportModal from '../components/IngredientImportModal';
 import IngredientExportModal from '../components/IngredientExportModal';
 
-const API_BASE = 'http://165.22.222.87:5000/api';
+const API_BASE = 'http://localhost:5000/api';
 
 const Ingredients = () => {
   const navigate = useNavigate();
