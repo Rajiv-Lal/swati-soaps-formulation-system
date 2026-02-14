@@ -1,7 +1,12 @@
 /**
- * Formulation Detail Page v2.3
- * 
- * FIXES:
+ * Formulation Detail Page v2.4
+ *
+ * FIXES (v2.4):
+ * - Delete individual versions from timeline
+ * - If only 1 version: deletes entire formulation
+ * - Proper callback handling for version deletion
+ *
+ * FIXES (v2.3):
  * - Back button on all views
  * - Version number displayed prominently
  * - Tab-specific action buttons (no bleeding)
@@ -192,6 +197,32 @@ const FormulationDetail = () => {
       navigate(`/formulations/${id}/edit?version=${selectedVersion.id}`);
     } else {
       navigate(`/formulations/${id}/edit`);
+    }
+  };
+
+  const handleVersionDeleted = async (deletedVersion) => {
+    // If deleteEntireFormulation flag is set, delete the whole formulation
+    if (deletedVersion.deleteEntireFormulation) {
+      try {
+        const response = await fetch(`${API_BASE}/formulations/${id}`, {
+          method: 'DELETE',
+          headers: { 'Authorization': `Bearer ${getToken()}` }
+        });
+
+        if (!response.ok) throw new Error('Failed to delete formulation');
+
+        navigate('/formulations');
+      } catch (err) {
+        console.error('Error deleting formulation:', err);
+        alert(err.message);
+      }
+    } else {
+      // Just a single version was deleted - reload formulation
+      await loadFormulation();
+      // If selected version was deleted, clear selection
+      if (selectedVersion?.id === deletedVersion.id) {
+        setSelectedVersion(null);
+      }
     }
   };
 
@@ -491,6 +522,7 @@ const FormulationDetail = () => {
           formulation={formulation}
           onVersionSelect={handleVersionSelect}
           selectedVersionId={selectedVersion?.id}
+          onVersionDeleted={handleVersionDeleted}
         />
       ) : (
         <VersionGraphs formulation={formulation} />

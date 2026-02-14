@@ -1,7 +1,12 @@
 /**
- * Version Timeline Component v2.3
- * 
- * FIXES:
+ * Version Timeline Component v2.4
+ *
+ * FIXES (v2.4):
+ * - Delete button for individual versions
+ * - If only 1 version: offers dialog to delete entire formulation
+ * - Shows loading spinner while deleting
+ *
+ * FIXES (v2.3):
  * - Separate expand/collapse from version selection
  * - Explicit "Select" button for each version
  * - Visual indicator for selected version
@@ -9,18 +14,19 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { 
-  Clock, ChevronDown, ChevronRight, AlertCircle, Loader2, 
-  Package, DollarSign, CheckCircle, RefreshCw 
+import {
+  Clock, ChevronDown, ChevronRight, AlertCircle, Loader2,
+  Package, DollarSign, CheckCircle, RefreshCw, Trash2
 } from 'lucide-react';
 
 const API_BASE = '/api';
 
-const VersionTimeline = ({ formulation, onVersionSelect, selectedVersionId }) => {
+const VersionTimeline = ({ formulation, onVersionSelect, selectedVersionId, onVersionsLoad, onVersionDeleted }) => {
   const [versions, setVersions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [expandedVersions, setExpandedVersions] = useState(new Set());
+  const [deletingVersion, setDeletingVersion] = useState(null);
 
   useEffect(() => {
     if (formulation?.id) {
@@ -37,13 +43,18 @@ const VersionTimeline = ({ formulation, onVersionSelect, selectedVersionId }) =>
       const response = await fetch(`${API_BASE}/formulations/${formulation.id}/versions`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
-      
+
       if (!response.ok) throw new Error('Failed to load versions');
-      
+
       const data = await response.json();
       const versionsData = data.versions || [];
       setVersions(versionsData);
-      
+
+      // Notify parent of versions count
+      if (onVersionsLoad) {
+        onVersionsLoad(versionsData.length);
+      }
+
       // Expand all versions by default
       const allIds = new Set(versionsData.map(v => v.id));
       setExpandedVersions(allIds);
@@ -52,6 +63,57 @@ const VersionTimeline = ({ formulation, onVersionSelect, selectedVersionId }) =>
       setError(err.message || 'Failed to load versions');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleDeleteVersion = async (version) => {
+    // If this is the only version, offer to delete entire formulation
+    if (versions.length <= 1) {
+      const userChoice = window.confirm(
+        `This is the only version of "${formulation.product_name}".\n\n` +
+        `A formulation cannot exist without versions.\n\n` +
+        `Click OK to delete the entire formulation, or Cancel to keep it.`
+      );
+
+      if (userChoice && onVersionDeleted) {
+        // Signal parent to delete entire formulation
+        onVersionDeleted({ ...version, deleteEntireFormulation: true });
+      }
+      return;
+    }
+
+    if (!window.confirm(`Delete version ${version.version_number}?\n\nThis action cannot be undone.`)) {
+      return;
+    }
+
+    setDeletingVersion(version.id);
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch(
+        `${API_BASE}/formulations/${formulation.id}/versions/${version.id}`,
+        {
+          method: 'DELETE',
+          headers: { 'Authorization': `Bearer ${token}` }
+        }
+      );
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || 'Failed to delete version');
+      }
+
+      // Reload versions
+      await loadVersions();
+
+      // Notify parent
+      if (onVersionDeleted) {
+        onVersionDeleted(version);
+      }
+    } catch (err) {
+      console.error('Error deleting version:', err);
+      alert(err.message);
+    } finally {
+      setDeletingVersion(null);
     }
   };
 
@@ -247,17 +309,33 @@ const VersionTimeline = ({ formulation, onVersionSelect, selectedVersionId }) =>
                     </div>
                   </div>
 
-                  {/* Select Button */}
-                  <button
-                    onClick={() => handleSelectVersion(version)}
-                    className={`px-4 py-2 rounded-md font-medium transition-colors ${
-                      isSelected
-                        ? 'bg-blue-600 text-white hover:bg-blue-700'
-                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                    }`}
-                  >
-                    {isSelected ? '✓ Selected' : 'Select Version'}
-                  </button>
+                  {/* Action Buttons */}
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => handleSelectVersion(version)}
+                      className={`px-4 py-2 rounded-md font-medium transition-colors ${
+                        isSelected
+                          ? 'bg-blue-600 text-white hover:bg-blue-700'
+                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                      }`}
+                    >
+                      {isSelected ? '✓ Selected' : 'Select Version'}
+                    </button>
+
+                    {/* Delete Button */}
+                    <button
+                      onClick={() => handleDeleteVersion(version)}
+                      disabled={deletingVersion === version.id}
+                      className="p-2 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-md transition-colors disabled:opacity-50"
+                      title={versions.length <= 1 ? 'Delete formulation' : 'Delete this version'}
+                    >
+                      {deletingVersion === version.id ? (
+                        <Loader2 className="w-5 h-5 animate-spin" />
+                      ) : (
+                        <Trash2 className="w-5 h-5" />
+                      )}
+                    </button>
+                  </div>
                 </div>
 
                 {/* Meta Info */}

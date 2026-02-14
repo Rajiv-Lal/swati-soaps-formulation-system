@@ -1015,6 +1015,72 @@ def delete_formulation(id):
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/formulations/<int:id>/versions/<int:version_id>', methods=['DELETE'])
+@jwt_required()
+def delete_formulation_version(id, version_id):
+    """Delete a specific version of a formulation.
+    - Cannot delete if it's the only version
+    - Updates current_version if the deleted version was current
+    """
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+
+        # Check formulation exists
+        cursor.execute('SELECT id, current_version FROM formulations WHERE id = ?', (id,))
+        formulation = cursor.fetchone()
+        if not formulation:
+            conn.close()
+            return jsonify({'error': 'Formulation not found'}), 404
+
+        # Check version exists
+        cursor.execute('SELECT id, version_number FROM formulation_versions WHERE id = ? AND formulation_id = ?',
+                      (version_id, id))
+        version = cursor.fetchone()
+        if not version:
+            conn.close()
+            return jsonify({'error': 'Version not found'}), 404
+
+        # Count total versions
+        cursor.execute('SELECT COUNT(*) as count FROM formulation_versions WHERE formulation_id = ?', (id,))
+        version_count = cursor.fetchone()['count']
+
+        # Cannot delete if only one version
+        if version_count <= 1:
+            conn.close()
+            return jsonify({'error': 'Cannot delete the only version. Delete the entire formulation instead.'}), 400
+
+        deleted_version_number = version['version_number']
+        current_version = formulation['current_version']
+
+        # Delete the version
+        cursor.execute('DELETE FROM formulation_versions WHERE id = ?', (version_id,))
+
+        # If deleted version was the current one, update to the latest remaining version
+        if deleted_version_number == current_version:
+            cursor.execute('''
+                SELECT version_number FROM formulation_versions
+                WHERE formulation_id = ?
+                ORDER BY created_at DESC
+                LIMIT 1
+            ''', (id,))
+            latest = cursor.fetchone()
+            if latest:
+                cursor.execute('UPDATE formulations SET current_version = ? WHERE id = ?',
+                              (latest['version_number'], id))
+
+        conn.commit()
+        conn.close()
+
+        return jsonify({
+            'message': f'Version {deleted_version_number} deleted successfully',
+            'deleted_version': deleted_version_number
+        }), 200
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 # ============================================================================
 # VERSION CONTROL ENDPOINTS
 # ============================================================================
