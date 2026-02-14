@@ -14,7 +14,7 @@ import {
   Package, DollarSign, CheckCircle, RefreshCw 
 } from 'lucide-react';
 
-const API_BASE = 'http://localhost:5000/api';
+const API_BASE = '/api';
 
 const VersionTimeline = ({ formulation, onVersionSelect, selectedVersionId }) => {
   const [versions, setVersions] = useState([]);

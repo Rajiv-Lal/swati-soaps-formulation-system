@@ -16,7 +16,7 @@ import {
   Loader2, Package, TrendingUp, Tag, Lock
 } from 'lucide-react';
 
-const API_BASE = 'http://localhost:5000/api';
+const API_BASE = '/api';
 
 // Format number with Indian comma system (₹1,23,456.78)
 const formatCurrency = (num) => {
@@ -113,6 +113,8 @@ const BOMGenerator = ({ formulation, selectedVersion = null }) => {
       return {
         id: ing.ingredient_id || ing.id,
         name: ing.name || ing.ingredient_name,
+        inci_name: ing.inci_name || '',
+        cas_number: ing.cas_number || '',
         category: ing.category_name || 'N/A',
         percentage,
         quantityKg,
@@ -222,6 +224,8 @@ const BOMGenerator = ({ formulation, selectedVersion = null }) => {
 
     const headers = [
       'Ingredient',
+      'INCI Name',
+      'CAS Number',
       'Category',
       'Percentage (%)',
       'Quantity (kg)',
@@ -233,6 +237,8 @@ const BOMGenerator = ({ formulation, selectedVersion = null }) => {
 
     const rows = calculatedBOM.items.map(item => [
       item.name,
+      item.inci_name || '',
+      item.cas_number || '',
       item.category,
       item.percentage.toFixed(2),
       item.quantityKg.toFixed(3),

@@ -278,7 +278,7 @@ def get_formulation(id):
                 enriched_ingredients = []
                 for snap_ing in snapshot_ingredients:
                     cursor.execute('''
-                        SELECT i.name as ingredient_name, i.landed_cost_net_gst,
+                        SELECT i.name as ingredient_name, i.inci_name, i.cas_number, i.landed_cost_net_gst,
                                c.name as category_name
                         FROM ingredients i
                         LEFT JOIN categories c ON i.category_id = c.id
@@ -293,7 +293,9 @@ def get_formulation(id):
                         'cost_per_piece': snap_ing.get('cost_per_piece'),
                         'ingredient_name': ing_details['ingredient_name'] if ing_details else f"Ingredient #{snap_ing['ingredient_id']}",
                         'landed_cost_net_gst': ing_details['landed_cost_net_gst'] if ing_details else 0,
-                        'category_name': ing_details['category_name'] if ing_details else None
+                        'category_name': ing_details['category_name'] if ing_details else None,
+                        'inci_name': ing_details['inci_name'] if ing_details else None,
+                        'cas_number': ing_details['cas_number'] if ing_details else None
                     }
                     enriched_ingredients.append(enriched_ing)
 
@@ -301,7 +303,7 @@ def get_formulation(id):
             else:
                 # Version not found, fall back to current
                 cursor.execute('''
-                    SELECT fi.*, i.name as ingredient_name, i.landed_cost_net_gst,
+                    SELECT fi.*, i.name as ingredient_name, i.inci_name, i.cas_number, i.landed_cost_net_gst,
                            c.name as category_name
                     FROM formulation_ingredients fi
                     JOIN ingredients i ON fi.ingredient_id = i.id
@@ -313,7 +315,7 @@ def get_formulation(id):
         else:
             # Get ingredients for current version
             cursor.execute('''
-                SELECT fi.*, i.name as ingredient_name, i.landed_cost_net_gst,
+                SELECT fi.*, i.name as ingredient_name, i.inci_name, i.cas_number, i.landed_cost_net_gst,
                        c.name as category_name
                 FROM formulation_ingredients fi
                 JOIN ingredients i ON fi.ingredient_id = i.id
@@ -1573,7 +1575,7 @@ def generate_bom(id):
         # Get ingredients for specific version if version_id provided
         if version_id and formulation['version_id']:
             cursor.execute('''
-                SELECT fi.*, i.name as ingredient_name, i.landed_cost_net_gst,
+                SELECT fi.*, i.name as ingredient_name, i.inci_name, i.cas_number, i.landed_cost_net_gst,
                        c.name as category_name
                 FROM formulation_ingredients fi
                 JOIN ingredients i ON fi.ingredient_id = i.id
@@ -1582,7 +1584,7 @@ def generate_bom(id):
             ''', (id, version_id))
         else:
             cursor.execute('''
-                SELECT fi.*, i.name as ingredient_name, i.landed_cost_net_gst,
+                SELECT fi.*, i.name as ingredient_name, i.inci_name, i.cas_number, i.landed_cost_net_gst,
                        c.name as category_name
                 FROM formulation_ingredients fi
                 JOIN ingredients i ON fi.ingredient_id = i.id

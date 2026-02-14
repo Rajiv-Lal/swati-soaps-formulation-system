@@ -20,7 +20,7 @@ import VersionTimeline from '../components/VersionTimeline';
 import VersionGraphs from '../components/VersionGraphs';
 import TestResults from '../components/TestResults';
 
-const API_BASE = 'http://localhost:5000/api';
+const API_BASE = '/api';
 
 const FormulationDetail = () => {
   const { id } = useParams();

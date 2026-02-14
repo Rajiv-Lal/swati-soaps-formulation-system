@@ -14,7 +14,7 @@ import {
   MessageSquare, TrendingUp, TrendingDown, Minus
 } from 'lucide-react';
 
-const API_BASE = 'http://localhost:5000/api';
+const API_BASE = '/api';
 
 const VersionGraphs = ({ formulation }) => {
   const [versions, setVersions] = useState([]);
