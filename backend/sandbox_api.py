@@ -128,7 +128,7 @@ def ai_recommend():
         ing_list = []
         for ing in db_ingredients:
             benefits = ing["benefits"] if ing["benefits"] else "No benefits listed"
-            ing_list.append(f"- {ing["name"]} ({ing["category"]}): {benefits}")
+            ing_list.append(f"- {ing['name']} ({ing['category']}): {benefits}")
         ingredient_list = "\n".join(ing_list)
 
         constraints_text = ""
