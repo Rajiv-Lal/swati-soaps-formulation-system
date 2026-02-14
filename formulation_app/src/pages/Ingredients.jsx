@@ -1,16 +1,18 @@
 /**
- * Ingredients Page v2.3
- * 
- * FIXES:
- * - Back button to formulations
+ * Ingredients Page v2.4
+ *
+ * FEATURES:
+ * - Resume button: shows when formulation draft exists in cache
+ * - Takes user directly back to editor with their draft
  * - Clean navigation
  */
 
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { 
-  Plus, Search, Filter, Edit2, Trash2, AlertCircle, RefreshCw, 
-  ChevronDown, ChevronRight, Upload, ArrowLeft, Package, FlaskConical, Download
+import {
+  Plus, Search, Filter, Edit2, Trash2, AlertCircle, RefreshCw,
+  ChevronDown, ChevronRight, Upload, ArrowLeft, Package, FlaskConical, Download,
+  Play
 } from 'lucide-react';
 import IngredientAddModal from '../components/IngredientAddModal';
 import IngredientEditModal from '../components/IngredientEditModal';
@@ -33,6 +35,38 @@ const Ingredients = () => {
   const [showImportModal, setShowImportModal] = useState(false);
   const [editingIngredientId, setEditingIngredientId] = useState(null);
   const [showExportModal, setShowExportModal] = useState(false);
+
+  // Cached draft state for "Resume" button
+  const [cachedDraft, setCachedDraft] = useState(null);
+
+  // Check for cached formulation drafts on mount
+  useEffect(() => {
+    const checkForDrafts = () => {
+      try {
+        // Check all localStorage keys for formulation drafts
+        for (let i = 0; i < localStorage.length; i++) {
+          const key = localStorage.key(i);
+          if (key && key.startsWith('formulation_draft_')) {
+            const draft = JSON.parse(localStorage.getItem(key));
+            if (draft && draft.formData) {
+              // Extract formulation ID from key (formulation_draft_123 or formulation_draft_new)
+              const idPart = key.replace('formulation_draft_', '');
+              setCachedDraft({
+                id: idPart === 'new' ? null : idPart,
+                name: draft.formData.product_name || 'Untitled',
+                savedAt: draft.savedAt,
+                ingredientCount: draft.formulaIngredients?.length || 0
+              });
+              return; // Found a draft, stop searching
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('Error checking for drafts:', e);
+      }
+    };
+    checkForDrafts();
+  }, []);
   
   // Filter and view states
   const [searchTerm, setSearchTerm] = useState('');
@@ -173,13 +207,24 @@ const Ingredients = () => {
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       {/* Navigation Header */}
       <div className="mb-6">
-        <button
-          onClick={() => navigate('/formulations')}
-          className="flex items-center gap-2 text-gray-600 hover:text-gray-900 mb-4"
-        >
-          <ArrowLeft className="w-4 h-4" />
-          Back to Formulations
-        </button>
+        {/* Show Resume button if there's a cached draft, otherwise show Back to Formulations */}
+        {cachedDraft ? (
+          <button
+            onClick={() => navigate(cachedDraft.id ? `/formulations/${cachedDraft.id}/edit` : '/formulations/create')}
+            className="flex items-center gap-2 px-3 py-1.5 bg-green-50 text-green-700 hover:bg-green-100 rounded-md mb-4 border border-green-200"
+          >
+            <Play className="w-4 h-4" />
+            Resume "{cachedDraft.name}" ({cachedDraft.ingredientCount} ingredients)
+          </button>
+        ) : (
+          <button
+            onClick={() => navigate('/formulations')}
+            className="flex items-center gap-2 text-gray-600 hover:text-gray-900 mb-4"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            Back to Formulations
+          </button>
+        )}
 
         <div className="flex justify-between items-center">
           <div>
