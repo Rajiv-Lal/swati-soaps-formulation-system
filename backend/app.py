@@ -1,7 +1,7 @@
 """
 SWATI SOAPS FORMULATION MANAGEMENT SYSTEM - BACKEND API
 Flask REST API with SQLite
-Version: 2.2 (Enhanced with Usage Warnings & Estimated Scores)
+Version: 2.3 (Version Control Enhancements - Diff Generator & Change Reasons)
 """
 
 from flask import Flask, request, jsonify
@@ -46,6 +46,72 @@ def get_db():
 def dict_from_row(row):
     """Convert sqlite3.Row to dictionary"""
     return dict(zip(row.keys(), row)) if row else None
+
+
+# ============================================================================
+# VERSION CONTROL HELPERS
+# ============================================================================
+
+def generate_ingredient_diff(old_ingredients, new_ingredients):
+    """
+    Generate human-readable diff between old and new ingredient lists.
+    Returns list of change descriptions like:
+    - "Coconut Oil: 50% → 60%"
+    - "Olive Oil removed"
+    - "Shea Butter added at 5%"
+    """
+    changes = []
+
+    # Create lookup dictionaries by ingredient_id
+    old_map = {ing.get('ingredient_id'): ing for ing in old_ingredients}
+    new_map = {ing.get('ingredient_id'): ing for ing in new_ingredients}
+
+    # Check for modifications and removals
+    for ing_id, old_ing in old_map.items():
+        name = old_ing.get('ingredient_name', f'Ingredient #{ing_id}')
+        old_pct = float(old_ing.get('percentage', 0))
+
+        if ing_id in new_map:
+            new_pct = float(new_map[ing_id].get('percentage', 0))
+            if abs(old_pct - new_pct) > 0.01:
+                changes.append(f"{name}: {old_pct:.1f}% → {new_pct:.1f}%")
+        else:
+            changes.append(f"{name} removed")
+
+    # Check for additions
+    for ing_id, new_ing in new_map.items():
+        if ing_id not in old_map:
+            name = new_ing.get('ingredient_name', f'Ingredient #{ing_id}')
+            new_pct = float(new_ing.get('percentage', 0))
+            changes.append(f"{name} added at {new_pct:.1f}%")
+
+    return changes
+
+
+def build_change_notes(user_notes, change_reasons, auto_diff):
+    """
+    Build comprehensive change notes combining:
+    - User-provided notes
+    - Selected change reasons (Price, Hardness, Perfume, Colour, Lather, Other)
+    - Auto-generated ingredient diff
+    """
+    parts = []
+
+    # Add change reasons if provided
+    if change_reasons:
+        reasons_text = "Reasons: " + ", ".join(change_reasons)
+        parts.append(reasons_text)
+
+    # Add user notes if provided
+    if user_notes and user_notes.strip():
+        parts.append(user_notes.strip())
+
+    # Add auto-generated diff
+    if auto_diff:
+        diff_text = "Changes: " + "; ".join(auto_diff)
+        parts.append(diff_text)
+
+    return " | ".join(parts) if parts else "Updated formulation"
 
 
 # Error handlers
@@ -648,21 +714,51 @@ def update_formulation(id):
             version_parts = existing['current_version'].replace('v', '').split('.')
             major = int(version_parts[0])
             minor = int(version_parts[1])
-            
+
             minor += 1
             if minor >= 10:
                 major += 1
                 minor = 0
-            
+
             new_version = f'v{major}.{minor}'
-            
+
+            # Get old ingredients for diff generation
+            cursor.execute('''
+                SELECT fi.ingredient_id, fi.percentage, i.name as ingredient_name
+                FROM formulation_ingredients fi
+                JOIN ingredients i ON fi.ingredient_id = i.id
+                WHERE fi.formulation_id = ?
+            ''', (id,))
+            old_ingredients = [dict(row) for row in cursor.fetchall()]
+
+            # Enrich new ingredients with names for diff
+            new_ingredients_with_names = []
+            for ing in ingredients:
+                cursor.execute('SELECT name FROM ingredients WHERE id = ?', (ing['ingredient_id'],))
+                ing_row = cursor.fetchone()
+                new_ingredients_with_names.append({
+                    'ingredient_id': ing['ingredient_id'],
+                    'percentage': ing['percentage'],
+                    'ingredient_name': ing_row['name'] if ing_row else f"Ingredient #{ing['ingredient_id']}"
+                })
+
+            # Generate auto-diff
+            auto_diff = generate_ingredient_diff(old_ingredients, new_ingredients_with_names)
+
+            # Get change reasons from request
+            change_reasons = data.get('change_reasons', [])
+            user_notes = data.get('version_notes', '')
+
+            # Build comprehensive change notes
+            final_notes = build_change_notes(user_notes, change_reasons, auto_diff)
+
             # Create version snapshot
             snapshot = {
                 'grammage': grammage,
                 'pack_count': pack_count,
                 'ingredients': ingredients
             }
-            
+
             cursor.execute('''
                 INSERT INTO formulation_versions (
                     formulation_id, version_number, created_at, created_by,
@@ -673,11 +769,11 @@ def update_formulation(id):
                 new_version,
                 datetime.now().isoformat(),
                 user_id,
-                data.get('version_notes', 'Updated formulation'),
+                final_notes,
                 json.dumps(snapshot),
                 round(total_cost, 4)
             ))
-            
+
             version_id = cursor.lastrowid
         
         # Update formulation record

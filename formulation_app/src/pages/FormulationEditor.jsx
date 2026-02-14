@@ -1,14 +1,16 @@
 /**
- * Formulation Editor v2.5
- * 
+ * Formulation Editor v2.6
+ *
  * FEATURES:
- * - localStorage cache for unsaved work (Option D)
+ * - localStorage cache for unsaved work
  * - Auto-save on every change
  * - Restore draft on page load
  * - Clear cache only after successful save at 100%
  * - Version notes input
  * - Role-based UI (submit for approval, make active)
  * - Navigate to Ingredients without losing work
+ * - Change reason checkboxes (Price, Hardness, Perfume, Colour, Lather, Other)
+ * - Auto-generated ingredient diff in version notes
  */
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
@@ -51,6 +53,25 @@ const FormulationEditor = () => {
   const [versionNotes, setVersionNotes] = useState('');
   const [saveAsNewVersion, setSaveAsNewVersion] = useState(true);
   const [submitForApproval, setSubmitForApproval] = useState(false);
+
+  // Change reason checkboxes for version control
+  const [changeReasons, setChangeReasons] = useState({
+    price: false,
+    hardness: false,
+    perfume: false,
+    colour: false,
+    lather: false,
+    other: false
+  });
+
+  const CHANGE_REASON_OPTIONS = [
+    { key: 'price', label: 'Price Optimization' },
+    { key: 'hardness', label: 'Hardness Adjustment' },
+    { key: 'perfume', label: 'Perfume/Fragrance' },
+    { key: 'colour', label: 'Colour Change' },
+    { key: 'lather', label: 'Lather Improvement' },
+    { key: 'other', label: 'Other' }
+  ];
   
   // Regulatory warning state
   const [regulatoryWarnings, setRegulatoryWarnings] = useState([]);
@@ -385,6 +406,13 @@ const FormulationEditor = () => {
       if (isEditMode && saveAsNewVersion) {
         payload.version_notes = versionNotes || 'Updated formulation';
         payload.create_new_version = true;
+        // Add selected change reasons
+        const selectedReasons = Object.entries(changeReasons)
+          .filter(([_, selected]) => selected)
+          .map(([key, _]) => CHANGE_REASON_OPTIONS.find(opt => opt.key === key)?.label || key);
+        if (selectedReasons.length > 0) {
+          payload.change_reasons = selectedReasons;
+        }
       }
       
       // Add submit for approval flag
@@ -808,21 +836,47 @@ const FormulationEditor = () => {
               </div>
 
               {saveAsNewVersion && (
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Version Notes *
-                  </label>
-                  <textarea
-                    value={versionNotes}
-                    onChange={(e) => setVersionNotes(e.target.value)}
-                    className="w-full px-3 py-2 border rounded-md focus:ring-2 focus:ring-blue-500"
-                    rows={3}
-                    placeholder="Describe what changed in this version..."
-                  />
-                  <p className="text-xs text-gray-500 mt-1">
-                    These notes will be saved with the version history
-                  </p>
-                </div>
+                <>
+                  {/* Change Reason Checkboxes */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Reason for Change
+                    </label>
+                    <div className="grid grid-cols-2 gap-2">
+                      {CHANGE_REASON_OPTIONS.map(option => (
+                        <label key={option.key} className="flex items-center gap-2 text-sm">
+                          <input
+                            type="checkbox"
+                            checked={changeReasons[option.key]}
+                            onChange={(e) => setChangeReasons(prev => ({
+                              ...prev,
+                              [option.key]: e.target.checked
+                            }))}
+                            className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                          />
+                          {option.label}
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Version Notes */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Additional Notes (optional)
+                    </label>
+                    <textarea
+                      value={versionNotes}
+                      onChange={(e) => setVersionNotes(e.target.value)}
+                      className="w-full px-3 py-2 border rounded-md focus:ring-2 focus:ring-blue-500"
+                      rows={2}
+                      placeholder="Any additional details..."
+                    />
+                    <p className="text-xs text-gray-500 mt-1">
+                      Ingredient changes are auto-detected
+                    </p>
+                  </div>
+                </>
               )}
               
               {canSubmitForApproval() && (
@@ -841,7 +895,11 @@ const FormulationEditor = () => {
 
             <div className="flex gap-3 mt-6">
               <button
-                onClick={() => setShowVersionDialog(false)}
+                onClick={() => {
+                  setShowVersionDialog(false);
+                  setChangeReasons({ price: false, hardness: false, perfume: false, colour: false, lather: false, other: false });
+                  setVersionNotes('');
+                }}
                 className="flex-1 px-4 py-2 text-gray-700 bg-gray-200 rounded-md hover:bg-gray-300"
               >
                 Cancel
@@ -851,7 +909,7 @@ const FormulationEditor = () => {
                   setShowVersionDialog(false);
                   saveFormulation();
                 }}
-                disabled={saveAsNewVersion && !versionNotes.trim()}
+                disabled={saveAsNewVersion && !versionNotes.trim() && !Object.values(changeReasons).some(v => v)}
                 className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-blue-400"
               >
                 Save
