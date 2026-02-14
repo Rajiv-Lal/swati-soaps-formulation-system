@@ -933,7 +933,7 @@ const FormulationEditor = () => {
             <div className="space-y-2 mb-6 max-h-60 overflow-y-auto">
               {regulatoryWarnings.map((warning, index) => (
                 <div key={index} className="p-3 bg-yellow-50 border border-yellow-200 rounded text-sm text-yellow-800">
-                  {warning}
+                  {typeof warning === 'object' ? warning.message : warning}
                 </div>
               ))}
             </div>
