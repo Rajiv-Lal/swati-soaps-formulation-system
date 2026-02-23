@@ -893,7 +893,7 @@ def import_ingredients():
         # Normalize header names (handle variations)
         header_mapping = {
             'name': ['name', 'ingredient', 'ingredient_name', 'item', 'item_name', 'material', 'material_name'],
-            'landed_cost_net_gst': ['landed_cost_net_gst', 'cost', 'price', 'rate', 'cost_per_kg', 'price_per_kg', 'landed_cost', 'amount', 'cost (rs/kg)', 'cost(rs/kg)', 'price (rs/kg)', 'price(rs/kg)'],
+            'landed_cost_net_gst': ['landed_cost_net_gst', 'cost', 'price', 'rate', 'rate (₹)', 'rate(₹)', 'cost_per_kg', 'price_per_kg', 'landed_cost', 'amount', 'cost (rs/kg)', 'cost(rs/kg)', 'price (rs/kg)', 'price(rs/kg)'],
             'category': ['category', 'category_name', 'group'],
             'inci_name': ['inci_name', 'inci', 'inci name'],
             'cas_number': ['cas_number', 'cas', 'cas no', 'cas_no'],
