@@ -2356,12 +2356,21 @@ def import_formulations_from_excel():
                 }
 
                 # Find grammage (REQUIRED) and pack count (optional)
+                import re
                 for row in ws.iter_rows(values_only=True):
                     if row[0]:
                         cell_text = str(row[0]).lower().strip()
-                        if 'grammage' in cell_text or 'gram' in cell_text or 'weight' in cell_text:
+                        if 'grammage' in cell_text or ('gram' in cell_text and 'program' not in cell_text):
                             try:
-                                formulation_data['grammage'] = float(row[1]) if row[1] else None
+                                # First try column B
+                                if row[1]:
+                                    val = str(row[1]).lower().replace('grams', '').replace('gram', '').replace('g', '').strip()
+                                    formulation_data['grammage'] = float(val)
+                                else:
+                                    # Extract number from column A (e.g., "Grammage: 103 grams")
+                                    numbers = re.findall(r'[\d.]+', cell_text)
+                                    if numbers:
+                                        formulation_data['grammage'] = float(numbers[0])
                             except:
                                 pass
                         if 'piece' in cell_text and 'case' in cell_text:
@@ -2390,24 +2399,22 @@ def import_formulations_from_excel():
                     continue
 
                 # Extract ingredients - only name and percentage are required
-                total_percentage = 0
+                # First pass: collect raw percentages to determine format
+                raw_ingredients = []
                 for row in ws.iter_rows(min_row=ingredient_start_row, values_only=True):
-                    # Get ingredient name (Column A) - REQUIRED
                     ingredient_name = row[0] if len(row) > 0 else None
                     if not ingredient_name:
                         break
 
                     ingredient_name = str(ingredient_name).strip()
-
-                    # Skip total row
                     if 'total' in ingredient_name.lower():
                         break
 
-                    # Get percentage (Column C or B) - REQUIRED
+                    # Get percentage (Column C or B)
                     percentage = None
-                    if len(row) > 2 and row[2]:  # Column C
+                    if len(row) > 2 and row[2]:
                         percentage = row[2]
-                    elif len(row) > 1 and row[1]:  # Column B as fallback
+                    elif len(row) > 1 and row[1]:
                         try:
                             percentage = float(row[1])
                         except:
@@ -2417,16 +2424,32 @@ def import_formulations_from_excel():
                         results['errors'].append(f"Sheet '{sheet_name}': Missing percentage for '{ingredient_name}'")
                         continue
 
-                    # Convert percentage - handle both 94 and 0.94 formats
                     try:
                         pct_value = float(percentage)
-                        # If value is <= 1 and not 0 or 1 exactly, assume it's decimal format
-                        if pct_value > 0 and pct_value < 1:
-                            pct_value = pct_value * 100
-                        # Now pct_value should be in 0-100 range
+                        raw_ingredients.append({
+                            'name': ingredient_name,
+                            'raw_pct': pct_value,
+                            'row': row
+                        })
                     except:
                         results['errors'].append(f"Sheet '{sheet_name}': Invalid percentage '{percentage}' for '{ingredient_name}'")
                         continue
+
+                # Determine format: sum raw values
+                raw_sum = sum(ing['raw_pct'] for ing in raw_ingredients)
+                # If sum is close to 1, it's decimal format; if close to 100, it's percentage format
+                is_decimal_format = raw_sum > 0.5 and raw_sum <= 1.5
+
+                # Second pass: convert and process
+                total_percentage = 0
+                for ing_data in raw_ingredients:
+                    ingredient_name = ing_data['name']
+                    row = ing_data['row']
+                    pct_value = ing_data['raw_pct']
+
+                    # Convert based on detected format
+                    if is_decimal_format:
+                        pct_value = pct_value * 100
 
                     total_percentage += pct_value
 
@@ -2534,6 +2557,11 @@ def import_formulations_from_excel():
                     cost_per_piece = (quantity_grams / 1000) * ing['unit_cost']
                     total_cost += cost_per_piece
 
+                # Check if formulation already exists
+                cursor.execute('SELECT id FROM formulations WHERE LOWER(product_name) = LOWER(?)',
+                              (formulation_data['product_name'],))
+                existing_formulation = cursor.fetchone()
+
                 # Add to preview list
                 results['formulations_preview'].append({
                     'sheet_name': sheet_name,
@@ -2544,8 +2572,15 @@ def import_formulations_from_excel():
                     'total_percentage': round(total_percentage, 2),
                     'estimated_cost': round(total_cost, 2),
                     'ingredients': formulation_data['ingredients'],
-                    'valid': True
+                    'valid': True,
+                    'already_exists': existing_formulation is not None,
+                    'existing_id': existing_formulation[0] if existing_formulation else None
                 })
+
+                # Skip if already exists
+                if existing_formulation:
+                    results['sheets_processed'] += 1
+                    continue
 
                 # Only create formulation if NOT in preview mode
                 if not is_preview and len(formulation_data['ingredients']) > 0:
@@ -2632,14 +2667,18 @@ def import_formulations_from_excel():
         conn.close()
 
         # Calculate counts
-        valid_formulations = len([f for f in results['formulations_preview'] if f['valid']])
-        skipped = results['sheets_processed'] - valid_formulations
+        all_valid = [f for f in results['formulations_preview'] if f['valid']]
+        new_formulations = [f for f in all_valid if not f.get('already_exists')]
+        existing_formulations = [f for f in all_valid if f.get('already_exists')]
+        skipped = len(results['errors'])
 
         if is_preview:
             return jsonify({
                 'mode': 'preview',
-                'message': f'Found {valid_formulations} valid formulations ready to import',
-                'valid_count': valid_formulations,
+                'message': f'Found {len(new_formulations)} new formulations ready to import' +
+                          (f', {len(existing_formulations)} already exist' if existing_formulations else ''),
+                'valid_count': len(new_formulations),
+                'existing_count': len(existing_formulations),
                 'skipped': skipped,
                 'sheets_processed': results['sheets_processed'],
                 'ingredients_matched': results['ingredients_matched'],
