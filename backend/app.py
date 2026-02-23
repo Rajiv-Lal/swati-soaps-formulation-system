@@ -2296,9 +2296,18 @@ def import_formulations_from_excel():
     """
     Import formulations from Excel (.xlsx, .xls)
 
+    Two-step process:
+    1. Preview mode (default): Returns list of formulations for user review
+    2. Confirm mode: Actually imports the formulations
+
+    Query params:
+    - preview=true (default): Show what will be imported without saving
+    - confirm=true: Actually save the formulations
+
+    Required: Grammage row (e.g., "Grammage | 75")
     Required columns: Ingredient Name, Percentage (must add to 100%)
     Optional columns: Supplier, HSN Code, Cost/kg
-    Optional rows: Grammage, Piece per case
+    Optional rows: Piece per case
 
     When ingredient exists in DB, auto-fills: supplier, HSN, INCI, cost from DB
     When ingredient doesn't exist, creates it with provided data (or blank)
@@ -2315,6 +2324,9 @@ def import_formulations_from_excel():
         if not (file.filename.endswith('.xlsx') or file.filename.endswith('.xls')):
             return jsonify({'error': 'File must be Excel (.xlsx or .xls)'}), 400
 
+        # Check if this is preview mode (default) or confirm mode
+        is_preview = request.form.get('confirm', 'false').lower() != 'true'
+
         import openpyxl
         wb = openpyxl.load_workbook(io.BytesIO(file.read()), data_only=True)
 
@@ -2322,12 +2334,14 @@ def import_formulations_from_excel():
         cursor = conn.cursor()
 
         results = {
+            'mode': 'preview' if is_preview else 'confirm',
             'sheets_processed': 0,
             'formulations_created': 0,
             'ingredients_matched': 0,
             'ingredients_created': 0,
             'errors': [],
-            'enriched_ingredients': []  # Track which ingredients were auto-filled from DB
+            'enriched_ingredients': [],  # Track which ingredients were auto-filled from DB
+            'formulations_preview': []   # Preview data for each formulation
         }
 
         for sheet_name in wb.sheetnames:
@@ -2513,8 +2527,28 @@ def import_formulations_from_excel():
                     results['errors'].append(f"Sheet '{sheet_name}': Percentages sum to {total_percentage:.2f}% (must be 100%)")
                     continue
 
-                # Create formulation if we have ingredients
-                if len(formulation_data['ingredients']) > 0:
+                # Calculate estimated cost for preview
+                total_cost = 0
+                for ing in formulation_data['ingredients']:
+                    quantity_grams = (ing['percentage'] / 100) * formulation_data['grammage']
+                    cost_per_piece = (quantity_grams / 1000) * ing['unit_cost']
+                    total_cost += cost_per_piece
+
+                # Add to preview list
+                results['formulations_preview'].append({
+                    'sheet_name': sheet_name,
+                    'product_name': formulation_data['product_name'],
+                    'grammage': formulation_data['grammage'],
+                    'pack_count': formulation_data['pack_count'],
+                    'ingredient_count': len(formulation_data['ingredients']),
+                    'total_percentage': round(total_percentage, 2),
+                    'estimated_cost': round(total_cost, 2),
+                    'ingredients': formulation_data['ingredients'],
+                    'valid': True
+                })
+
+                # Only create formulation if NOT in preview mode
+                if not is_preview and len(formulation_data['ingredients']) > 0:
                     cursor.execute('SELECT id FROM product_types WHERE name LIKE ? LIMIT 1', ('%Soap%',))
                     product_type_result = cursor.fetchone()
                     product_type_id = product_type_result[0] if product_type_result else 1
@@ -2562,12 +2596,10 @@ def import_formulations_from_excel():
 
                     version_id = cursor.lastrowid
 
-                    # Insert formulation ingredients and calculate cost
-                    total_cost = 0
+                    # Insert formulation ingredients
                     for ing in formulation_data['ingredients']:
                         quantity_grams = (ing['percentage'] / 100) * formulation_data['grammage']
                         cost_per_piece = (quantity_grams / 1000) * ing['unit_cost']
-                        total_cost += cost_per_piece
 
                         cursor.execute('''
                             INSERT INTO formulation_ingredients (
@@ -2594,22 +2626,39 @@ def import_formulations_from_excel():
             except Exception as e:
                 results['errors'].append(f"Sheet '{sheet_name}': {str(e)}")
 
-        conn.commit()
+        # Only commit if NOT in preview mode
+        if not is_preview:
+            conn.commit()
         conn.close()
 
-        # Calculate skipped
-        skipped = results['sheets_processed'] - results['formulations_created'] + len(results['errors'])
+        # Calculate counts
+        valid_formulations = len([f for f in results['formulations_preview'] if f['valid']])
+        skipped = results['sheets_processed'] - valid_formulations
 
-        return jsonify({
-            'message': 'Import completed',
-            'imported': results['formulations_created'],
-            'skipped': skipped,
-            'sheets_processed': results['sheets_processed'],
-            'formulations_created': results['formulations_created'],
-            'ingredients_matched': results['ingredients_matched'],
-            'ingredients_created': results['ingredients_created'],
-            'errors': results['errors']
-        }), 200
+        if is_preview:
+            return jsonify({
+                'mode': 'preview',
+                'message': f'Found {valid_formulations} valid formulations ready to import',
+                'valid_count': valid_formulations,
+                'skipped': skipped,
+                'sheets_processed': results['sheets_processed'],
+                'ingredients_matched': results['ingredients_matched'],
+                'ingredients_to_create': results['ingredients_created'],
+                'formulations': results['formulations_preview'],
+                'errors': results['errors']
+            }), 200
+        else:
+            return jsonify({
+                'mode': 'confirmed',
+                'message': 'Import completed',
+                'imported': results['formulations_created'],
+                'skipped': skipped,
+                'sheets_processed': results['sheets_processed'],
+                'formulations_created': results['formulations_created'],
+                'ingredients_matched': results['ingredients_matched'],
+                'ingredients_created': results['ingredients_created'],
+                'errors': results['errors']
+            }), 200
 
     except Exception as e:
         return jsonify({'error': str(e)}), 500
