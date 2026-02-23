@@ -2290,165 +2290,235 @@ def api_root():
 # EXCEL FORMULATION IMPORT
 # ============================================================================
 
-@app.route('/api/formulations/import-excel', methods=['POST'])
+@app.route('/api/formulations/import', methods=['POST'])
 @jwt_required()
 def import_formulations_from_excel():
-    """Import formulations from Excel - auto-creates missing ingredients"""
+    """
+    Import formulations from Excel (.xlsx, .xls)
+
+    Required columns: Ingredient Name, Percentage (must add to 100%)
+    Optional columns: Supplier, HSN Code, Cost/kg
+    Optional rows: Grammage, Piece per case
+
+    When ingredient exists in DB, auto-fills: supplier, HSN, INCI, cost from DB
+    When ingredient doesn't exist, creates it with provided data (or blank)
+    """
     try:
         import io
         user_id = get_jwt_identity()
-        
+
         if 'file' not in request.files:
             return jsonify({'error': 'No file provided'}), 400
-            
+
         file = request.files['file']
-        
+
         if not (file.filename.endswith('.xlsx') or file.filename.endswith('.xls')):
             return jsonify({'error': 'File must be Excel (.xlsx or .xls)'}), 400
-        
+
         import openpyxl
         wb = openpyxl.load_workbook(io.BytesIO(file.read()), data_only=True)
-        
+
         conn = get_db()
         cursor = conn.cursor()
-        
+
         results = {
             'sheets_processed': 0,
             'formulations_created': 0,
             'ingredients_matched': 0,
             'ingredients_created': 0,
-            'errors': []
+            'errors': [],
+            'enriched_ingredients': []  # Track which ingredients were auto-filled from DB
         }
-        
+
         for sheet_name in wb.sheetnames:
             try:
                 ws = wb[sheet_name]
-                
+
                 formulation_data = {
                     'product_name': sheet_name,
-                    'grammage': 75,
-                    'pack_count': 1,
+                    'grammage': None,  # Required - must be found
+                    'pack_count': 1,   # Optional, defaults to 1
                     'ingredients': []
                 }
-                
-                # Find grammage and pack count
-                for row in ws.iter_rows(min_row=4, max_row=7, values_only=True):
-                    if row[0] and 'grammage' in str(row[0]).lower():
-                        formulation_data['grammage'] = float(row[1]) if row[1] else 75
-                    if row[0] and 'piece per case' in str(row[0]).lower():
-                        formulation_data['pack_count'] = int(row[1]) if row[1] else 1
-                
-                # Find ingredients section
+
+                # Find grammage (REQUIRED) and pack count (optional)
+                for row in ws.iter_rows(values_only=True):
+                    if row[0]:
+                        cell_text = str(row[0]).lower().strip()
+                        if 'grammage' in cell_text or 'gram' in cell_text or 'weight' in cell_text:
+                            try:
+                                formulation_data['grammage'] = float(row[1]) if row[1] else None
+                            except:
+                                pass
+                        if 'piece' in cell_text and 'case' in cell_text:
+                            try:
+                                formulation_data['pack_count'] = int(row[1]) if row[1] else 1
+                            except:
+                                pass
+
+                # Validate grammage is provided
+                if not formulation_data['grammage']:
+                    results['errors'].append(f"Sheet '{sheet_name}': Grammage is required (add row with 'Grammage' label and value)")
+                    continue
+
+                # Find ingredients section - look for header row
                 ingredient_start_row = None
                 for idx, row in enumerate(ws.iter_rows(values_only=True), 1):
-                    if row[0] and 'particulars' in str(row[0]).lower():
-                        ingredient_start_row = idx + 1
-                        break
-                
+                    if row[0]:
+                        cell_text = str(row[0]).lower().strip()
+                        # Accept various header names
+                        if cell_text in ['particulars', 'ingredient', 'ingredients', 'name', 'item']:
+                            ingredient_start_row = idx + 1
+                            break
+
                 if not ingredient_start_row:
-                    results['errors'].append(f"Sheet '{sheet_name}': Could not find ingredients section")
+                    results['errors'].append(f"Sheet '{sheet_name}': No ingredient header found (use 'Particulars' or 'Ingredient')")
                     continue
-                
-                # Extract ingredients
+
+                # Extract ingredients - only name and percentage are required
+                total_percentage = 0
                 for row in ws.iter_rows(min_row=ingredient_start_row, values_only=True):
-                    ingredient_name = row[0]
-                    supplier_name = row[1]
-                    percentage = row[2]
-                    hsn_code = row[3]
-                    cost = row[5]
-                    
-                    if not ingredient_name or not percentage:
+                    # Get ingredient name (Column A) - REQUIRED
+                    ingredient_name = row[0] if len(row) > 0 else None
+                    if not ingredient_name:
                         break
-                    
-                    if 'total' in str(ingredient_name).lower():
+
+                    ingredient_name = str(ingredient_name).strip()
+
+                    # Skip total row
+                    if 'total' in ingredient_name.lower():
                         break
-                    
-                    # Find ingredient
+
+                    # Get percentage (Column C or B) - REQUIRED
+                    percentage = None
+                    if len(row) > 2 and row[2]:  # Column C
+                        percentage = row[2]
+                    elif len(row) > 1 and row[1]:  # Column B as fallback
+                        try:
+                            percentage = float(row[1])
+                        except:
+                            pass
+
+                    if percentage is None:
+                        results['errors'].append(f"Sheet '{sheet_name}': Missing percentage for '{ingredient_name}'")
+                        continue
+
+                    # Convert percentage - handle both 94 and 0.94 formats
+                    try:
+                        pct_value = float(percentage)
+                        # If value is <= 1 and not 0 or 1 exactly, assume it's decimal format
+                        if pct_value > 0 and pct_value < 1:
+                            pct_value = pct_value * 100
+                        # Now pct_value should be in 0-100 range
+                    except:
+                        results['errors'].append(f"Sheet '{sheet_name}': Invalid percentage '{percentage}' for '{ingredient_name}'")
+                        continue
+
+                    total_percentage += pct_value
+
+                    # Optional fields from Excel
+                    excel_supplier = str(row[1]).strip() if len(row) > 1 and row[1] else None
+                    excel_hsn = str(row[3]).strip() if len(row) > 3 and row[3] else None
+                    excel_cost = float(row[5]) if len(row) > 5 and row[5] else 0
+
+                    # Search for ingredient in database
                     cursor.execute('''
-                        SELECT id, landed_cost_net_gst
-                        FROM ingredients
-                        WHERE LOWER(name) = LOWER(?)
-                    ''', (str(ingredient_name).strip(),))
-                    
+                        SELECT i.id, i.name, i.landed_cost_net_gst, i.hsn_code, i.inci_name,
+                               s.name as supplier_name, c.name as category_name
+                        FROM ingredients i
+                        LEFT JOIN suppliers s ON i.supplier_id = s.id
+                        LEFT JOIN categories c ON i.category_id = c.id
+                        WHERE LOWER(i.name) = LOWER(?)
+                    ''', (ingredient_name,))
+
                     ingredient_match = cursor.fetchone()
-                    
+
                     if ingredient_match:
+                        # Ingredient found - use DB values (auto-fill)
                         ingredient_id = ingredient_match[0]
-                        unit_cost = ingredient_match[1] or 0
+                        db_name = ingredient_match[1]
+                        unit_cost = ingredient_match[2] or 0
+                        db_hsn = ingredient_match[3]
+                        db_inci = ingredient_match[4]
+                        db_supplier = ingredient_match[5]
+                        db_category = ingredient_match[6]
+
                         results['ingredients_matched'] += 1
+                        results['enriched_ingredients'].append({
+                            'name': db_name,
+                            'from_db': True,
+                            'supplier': db_supplier,
+                            'hsn': db_hsn,
+                            'inci': db_inci,
+                            'cost': unit_cost
+                        })
                     else:
-                        # Auto-create ingredient
+                        # Ingredient not found - create new with Excel data (or blank)
                         try:
                             supplier_id = None
-                            if supplier_name:
-                                cursor.execute('''
-                                    SELECT id FROM suppliers
-                                    WHERE LOWER(name) = LOWER(?)
-                                ''', (str(supplier_name).strip(),))
+                            if excel_supplier:
+                                cursor.execute('SELECT id FROM suppliers WHERE LOWER(name) = LOWER(?)', (excel_supplier,))
                                 supplier_result = cursor.fetchone()
-                                
                                 if supplier_result:
                                     supplier_id = supplier_result[0]
                                 else:
-                                    cursor.execute('''
-                                        INSERT INTO suppliers (name, created_at)
-                                        VALUES (?, ?)
-                                    ''', (str(supplier_name).strip(), datetime.now().isoformat()))
+                                    cursor.execute('INSERT INTO suppliers (name, created_at) VALUES (?, ?)',
+                                                 (excel_supplier, datetime.now().isoformat()))
                                     supplier_id = cursor.lastrowid
-                            
-                            unit_cost = float(cost) if cost else 0
-                            
-                            # Get Uncategorized category
+
+                            # Get or create Uncategorized category
                             cursor.execute('SELECT id FROM categories WHERE name = ? LIMIT 1', ('Uncategorized',))
                             category_result = cursor.fetchone()
-                            
                             if not category_result:
-                                cursor.execute('''
-                                    INSERT INTO categories (name, created_at)
-                                    VALUES (?, ?)
-                                ''', ('Uncategorized', datetime.now().isoformat()))
+                                cursor.execute('INSERT INTO categories (name, created_at) VALUES (?, ?)',
+                                             ('Uncategorized', datetime.now().isoformat()))
                                 category_id = cursor.lastrowid
                             else:
                                 category_id = category_result[0]
-                            
+
                             cursor.execute('''
                                 INSERT INTO ingredients (
                                     name, category_id, supplier_id, landed_cost_net_gst,
-                                    hsn_code, stock_status, unit_of_measure,
-                                    created_at, updated_at
+                                    hsn_code, stock_status, unit_of_measure, created_at, updated_at
                                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                             ''', (
-                                str(ingredient_name).strip(),
+                                ingredient_name,
                                 category_id,
                                 supplier_id,
-                                unit_cost,
-                                str(hsn_code).strip() if hsn_code else None,
+                                excel_cost,
+                                excel_hsn,
                                 'in_stock',
                                 'kg',
                                 datetime.now().isoformat(),
                                 datetime.now().isoformat()
                             ))
-                            
+
                             ingredient_id = cursor.lastrowid
+                            unit_cost = excel_cost
                             results['ingredients_created'] += 1
-                            
+
                         except Exception as e:
-                            results['errors'].append(f"Failed to create ingredient '{ingredient_name}': {str(e)}")
+                            results['errors'].append(f"Failed to create '{ingredient_name}': {str(e)}")
                             continue
-                    
+
                     formulation_data['ingredients'].append({
                         'ingredient_id': ingredient_id,
                         'ingredient_name': ingredient_name,
-                        'percentage': float(percentage) * 100,
+                        'percentage': pct_value,
                         'unit_cost': unit_cost
                     })
-                
-                # Create formulation
+
+                # Validate total percentage (must be ~100%)
+                if abs(total_percentage - 100) > 0.5:
+                    results['errors'].append(f"Sheet '{sheet_name}': Percentages sum to {total_percentage:.2f}% (must be 100%)")
+                    continue
+
+                # Create formulation if we have ingredients
                 if len(formulation_data['ingredients']) > 0:
-                    cursor.execute('SELECT id FROM product_types WHERE name = ? LIMIT 1', ('Soap',))
+                    cursor.execute('SELECT id FROM product_types WHERE name LIKE ? LIMIT 1', ('%Soap%',))
                     product_type_result = cursor.fetchone()
                     product_type_id = product_type_result[0] if product_type_result else 1
-                    
+
                     cursor.execute('''
                         INSERT INTO formulations (
                             product_name, product_type_id, grammage, pack_count,
@@ -2465,16 +2535,16 @@ def import_formulations_from_excel():
                         datetime.now().isoformat(),
                         datetime.now().isoformat()
                     ))
-                    
+
                     formulation_id = cursor.lastrowid
-                    
-                    # Create version
+
+                    # Create version snapshot
                     snapshot = {
                         'grammage': formulation_data['grammage'],
                         'pack_count': formulation_data['pack_count'],
                         'ingredients': formulation_data['ingredients']
                     }
-                    
+
                     cursor.execute('''
                         INSERT INTO formulation_versions (
                             formulation_id, version_number, created_at, created_by,
@@ -2489,16 +2559,16 @@ def import_formulations_from_excel():
                         json.dumps(snapshot),
                         0
                     ))
-                    
+
                     version_id = cursor.lastrowid
-                    
-                    # Insert ingredients
+
+                    # Insert formulation ingredients and calculate cost
                     total_cost = 0
                     for ing in formulation_data['ingredients']:
                         quantity_grams = (ing['percentage'] / 100) * formulation_data['grammage']
                         cost_per_piece = (quantity_grams / 1000) * ing['unit_cost']
                         total_cost += cost_per_piece
-                        
+
                         cursor.execute('''
                             INSERT INTO formulation_ingredients (
                                 formulation_id, version_id, ingredient_id, percentage,
@@ -2512,33 +2582,35 @@ def import_formulations_from_excel():
                             quantity_grams,
                             cost_per_piece
                         ))
-                    
-                    # Update total cost
-                    cursor.execute('''
-                        UPDATE formulations
-                        SET total_cost_per_piece = ?
-                        WHERE id = ?
-                    ''', (round(total_cost, 4), formulation_id))
-                    
+
+                    # Update formulation total cost
+                    cursor.execute('UPDATE formulations SET total_cost_per_piece = ? WHERE id = ?',
+                                 (round(total_cost, 4), formulation_id))
+
                     results['formulations_created'] += 1
-                
+
                 results['sheets_processed'] += 1
-                
+
             except Exception as e:
                 results['errors'].append(f"Sheet '{sheet_name}': {str(e)}")
-        
+
         conn.commit()
         conn.close()
-        
+
+        # Calculate skipped
+        skipped = results['sheets_processed'] - results['formulations_created'] + len(results['errors'])
+
         return jsonify({
             'message': 'Import completed',
+            'imported': results['formulations_created'],
+            'skipped': skipped,
             'sheets_processed': results['sheets_processed'],
             'formulations_created': results['formulations_created'],
             'ingredients_matched': results['ingredients_matched'],
             'ingredients_created': results['ingredients_created'],
             'errors': results['errors']
         }), 200
-        
+
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 

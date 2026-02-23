@@ -20,15 +20,13 @@ const FormulationImportModal = ({ isOpen, onClose, onSuccess }) => {
     if (selectedFile) {
       const validTypes = [
         'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        'application/vnd.ms-excel',
-        'text/csv'
+        'application/vnd.ms-excel'
       ];
-      
-      if (!validTypes.includes(selectedFile.type) && 
-          !selectedFile.name.endsWith('.xlsx') && 
-          !selectedFile.name.endsWith('.xls') &&
-          !selectedFile.name.endsWith('.csv')) {
-        setError('Please select an Excel (.xlsx, .xls) or CSV file');
+
+      if (!validTypes.includes(selectedFile.type) &&
+          !selectedFile.name.endsWith('.xlsx') &&
+          !selectedFile.name.endsWith('.xls')) {
+        setError('Please select an Excel file (.xlsx or .xls)');
         setFile(null);
         return;
       }
@@ -125,6 +123,22 @@ const FormulationImportModal = ({ isOpen, onClose, onSuccess }) => {
                     Successfully imported {result.imported} formulation{result.imported !== 1 ? 's' : ''}
                     {result.skipped > 0 && `, skipped ${result.skipped}`}
                   </p>
+                  {result.ingredients_created > 0 && (
+                    <p className="text-xs text-green-600 mt-1">
+                      {result.ingredients_created} new ingredient{result.ingredients_created !== 1 ? 's' : ''} auto-created
+                    </p>
+                  )}
+                  {result.errors && result.errors.length > 0 && (
+                    <div className="mt-2 text-xs text-amber-700">
+                      <p className="font-medium">Warnings:</p>
+                      <ul className="list-disc list-inside">
+                        {result.errors.slice(0, 3).map((err, idx) => (
+                          <li key={idx}>{err}</li>
+                        ))}
+                        {result.errors.length > 3 && <li>...and {result.errors.length - 3} more</li>}
+                      </ul>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -143,7 +157,7 @@ const FormulationImportModal = ({ isOpen, onClose, onSuccess }) => {
             <input
               ref={fileInputRef}
               type="file"
-              accept=".xlsx,.xls,.csv"
+              accept=".xlsx,.xls"
               onChange={handleFileChange}
               className="hidden"
             />
@@ -166,18 +180,25 @@ const FormulationImportModal = ({ isOpen, onClose, onSuccess }) => {
                 <Upload className="w-12 h-12 text-gray-400 mb-3" />
                 <p className="font-medium text-gray-900">Drop your file here</p>
                 <p className="text-sm text-gray-500 mt-1">or click to browse</p>
-                <p className="text-xs text-gray-400 mt-2">Supports .xlsx, .xls, .csv</p>
+                <p className="text-xs text-gray-400 mt-2">Supports .xlsx, .xls</p>
               </div>
             )}
           </div>
 
           {/* Instructions */}
           <div className="mt-4 p-4 bg-gray-50 rounded-md">
-            <h4 className="text-sm font-medium text-gray-900 mb-2">Expected Format</h4>
-            <p className="text-xs text-gray-600">
-              product_name*, grammage, product_type, status, ingredients (JSON or separate sheet)
+            <h4 className="text-sm font-medium text-gray-900 mb-2">Expected Excel Format</h4>
+            <ul className="text-xs text-gray-600 space-y-1">
+              <li>• <strong>Sheet name</strong> = Product name</li>
+              <li>• <strong>Grammage row</strong> (required): "Grammage" | 75</li>
+              <li>• <strong>Piece per case</strong> (optional): "Piece per case" | 3</li>
+              <li>• <strong>Ingredients table</strong> with header row:</li>
+            </ul>
+            <p className="text-xs text-gray-500 mt-2 font-mono">
+              Ingredient* | Supplier | %* | HSN | _ | Cost/kg
             </p>
-            <p className="text-xs text-gray-500 mt-1">* Required fields</p>
+            <p className="text-xs text-gray-400 mt-1">* Required. Percentages must add to 100%.</p>
+            <p className="text-xs text-green-600 mt-1">Existing ingredients auto-fill supplier, HSN, cost from database.</p>
           </div>
         </div>
 
