@@ -1555,10 +1555,9 @@ def get_test_results(id):
         cursor = conn.cursor()
         
         cursor.execute('''
-            SELECT tr.*, u.full_name as tested_by_name, fv.version_number
+            SELECT tr.*, u.full_name as tested_by_name, tr.version_tested as version_number
             FROM test_results tr
             LEFT JOIN users u ON tr.tested_by = u.id
-            LEFT JOIN formulation_versions fv ON tr.version_id = fv.id
             WHERE tr.formulation_id = ?
             ORDER BY tr.test_date DESC
         ''', (id,))
