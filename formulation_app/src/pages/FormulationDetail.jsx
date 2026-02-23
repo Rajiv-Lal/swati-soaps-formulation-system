@@ -40,6 +40,8 @@ const FormulationDetail = () => {
   const [benefits, setBenefits] = useState(null);
   const [benefitsLoading, setBenefitsLoading] = useState(false);
   const [refreshingPrices, setRefreshingPrices] = useState(false);
+  const [estimatedScores, setEstimatedScores] = useState(null);
+  const [scoresLoading, setScoresLoading] = useState(false);
   const [duplicating, setDuplicating] = useState(false);
   const [versionViewMode, setVersionViewMode] = useState('timeline'); // 'timeline' or 'graph'
 
@@ -81,6 +83,32 @@ const FormulationDetail = () => {
   useEffect(() => {
     loadFormulation();
   }, [loadFormulation]);
+
+  // Load estimated scores
+  const loadEstimatedScores = useCallback(async () => {
+    if (!id) return;
+    setScoresLoading(true);
+    try {
+      const versionParam = selectedVersion ? `?version_id=${selectedVersion.id}` : '';
+      const response = await fetch(`${API_BASE}/formulations/${id}/estimated-scores${versionParam}`, {
+        headers: { 'Authorization': `Bearer ${getToken()}` }
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setEstimatedScores(data);
+      }
+    } catch (err) {
+      console.error('Error loading estimated scores:', err);
+    } finally {
+      setScoresLoading(false);
+    }
+  }, [id, selectedVersion]);
+
+  useEffect(() => {
+    if (formulation) {
+      loadEstimatedScores();
+    }
+  }, [formulation, loadEstimatedScores]);
 
   // ---------------------------------------------------------------------------
   // ACTIONS
@@ -406,6 +434,105 @@ const FormulationDetail = () => {
           </div>
         </div>
       </div>
+
+      {/* Estimated Scores (Hardness & Lather) */}
+      {estimatedScores && (
+        <div className="bg-white rounded-lg border p-6">
+          <h3 className="font-semibold text-gray-900 mb-4 flex items-center gap-2">
+            <BarChart3 className="w-5 h-5 text-blue-600" />
+            Estimated Soap Properties
+          </h3>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* Hardness Score */}
+            <div>
+              <div className="flex justify-between items-center mb-2">
+                <span className="text-sm font-medium text-gray-700">Hardness</span>
+                <span className={`px-2 py-0.5 text-xs font-medium rounded ${
+                  estimatedScores.estimated_scores.hardness_rating === 'High'
+                    ? 'bg-green-100 text-green-800'
+                    : estimatedScores.estimated_scores.hardness_rating === 'Medium'
+                      ? 'bg-yellow-100 text-yellow-800'
+                      : 'bg-red-100 text-red-800'
+                }`}>
+                  {estimatedScores.estimated_scores.hardness_rating}
+                </span>
+              </div>
+              <div className="w-full bg-gray-200 rounded-full h-4">
+                <div
+                  className="bg-blue-600 h-4 rounded-full transition-all duration-500"
+                  style={{ width: `${Math.min(estimatedScores.estimated_scores.hardness, 100)}%` }}
+                />
+              </div>
+              <div className="text-right text-sm text-gray-600 mt-1">
+                {estimatedScores.estimated_scores.hardness.toFixed(1)} / 100
+              </div>
+            </div>
+
+            {/* Lather Score */}
+            <div>
+              <div className="flex justify-between items-center mb-2">
+                <span className="text-sm font-medium text-gray-700">Lather</span>
+                <span className={`px-2 py-0.5 text-xs font-medium rounded ${
+                  estimatedScores.estimated_scores.lather_rating === 'High'
+                    ? 'bg-green-100 text-green-800'
+                    : estimatedScores.estimated_scores.lather_rating === 'Medium'
+                      ? 'bg-yellow-100 text-yellow-800'
+                      : 'bg-red-100 text-red-800'
+                }`}>
+                  {estimatedScores.estimated_scores.lather_rating}
+                </span>
+              </div>
+              <div className="w-full bg-gray-200 rounded-full h-4">
+                <div
+                  className="bg-purple-600 h-4 rounded-full transition-all duration-500"
+                  style={{ width: `${Math.min(estimatedScores.estimated_scores.lather, 100)}%` }}
+                />
+              </div>
+              <div className="text-right text-sm text-gray-600 mt-1">
+                {estimatedScores.estimated_scores.lather.toFixed(1)} / 100
+              </div>
+            </div>
+          </div>
+
+          {/* Coverage Note */}
+          <div className="mt-4 text-sm text-gray-500 flex items-center gap-2">
+            <CheckCircle className="w-4 h-4 text-green-500" />
+            {estimatedScores.coverage.note}
+          </div>
+
+          {/* Ingredient Contributions (Collapsible) */}
+          {estimatedScores.ingredient_contributions?.length > 0 && (
+            <details className="mt-4">
+              <summary className="cursor-pointer text-sm text-blue-600 hover:text-blue-800">
+                View ingredient contributions ({estimatedScores.ingredient_contributions.length} ingredients with data)
+              </summary>
+              <div className="mt-3 overflow-x-auto">
+                <table className="min-w-full text-sm">
+                  <thead>
+                    <tr className="text-left text-gray-500">
+                      <th className="py-2 pr-4">Ingredient</th>
+                      <th className="py-2 px-4 text-right">%</th>
+                      <th className="py-2 px-4 text-right">Hardness</th>
+                      <th className="py-2 px-4 text-right">Lather</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {estimatedScores.ingredient_contributions.map((ing, idx) => (
+                      <tr key={idx}>
+                        <td className="py-2 pr-4 font-medium text-gray-900">{ing.name}</td>
+                        <td className="py-2 px-4 text-right text-gray-600">{ing.percentage.toFixed(1)}%</td>
+                        <td className="py-2 px-4 text-right text-blue-600">+{ing.hardness_contribution.toFixed(1)}</td>
+                        <td className="py-2 px-4 text-right text-purple-600">+{ing.lather_contribution.toFixed(1)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </details>
+          )}
+        </div>
+      )}
 
       {/* Ingredients Table */}
       <div className="bg-white rounded-lg border overflow-hidden">
